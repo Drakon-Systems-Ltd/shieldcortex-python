@@ -2,20 +2,24 @@
 
 All types use frozen dataclasses with Python snake_case field names.
 The HTTP layer handles conversion to/from the API's mixed casing.
+
+NOTE: We use Optional[X] instead of X | None throughout this file because
+these dataclass fields are evaluated at runtime by get_type_hints(), and
+the PEP 604 union syntax (X | None) is not supported on Python 3.9.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
-# ── Scan ──────────────────────────────────────────────────────────────────────
+# -- Scan ------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ScanSource:
     type: Literal["user", "cli", "hook", "email", "web", "agent", "file", "api"]
-    identifier: str | None = None
+    identifier: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -47,7 +51,7 @@ class TrustResult:
 @dataclass(frozen=True)
 class FragmentationResult:
     score: float
-    risk_level: str | None = None
+    risk_level: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -63,17 +67,17 @@ class ScanResult:
     sensitivity: SensitivityResult
     trust: TrustResult
     audit_id: int
-    fragmentation: FragmentationResult | None = None
-    usage: UsageInfo | None = None
+    fragmentation: Optional[FragmentationResult] = None
+    usage: Optional[UsageInfo] = None
 
 
-# ── Batch Scan ────────────────────────────────────────────────────────────────
+# -- Batch Scan ------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class BatchItem:
     content: str
-    title: str | None = None
+    title: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -84,7 +88,7 @@ class BatchResult:
     results: list[ScanResult] = field(default_factory=list)
 
 
-# ── Skill Scan ────────────────────────────────────────────────────────────────
+# -- Skill Scan ------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -98,8 +102,8 @@ class SkillThreat:
 @dataclass(frozen=True)
 class SkillScanMetadata:
     format: str
-    name: str | None = None
-    scan_duration_ms: int | None = None
+    name: Optional[str] = None
+    scan_duration_ms: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -108,22 +112,22 @@ class SkillScanResult:
     level: str
     verdict: str
     threats: list[SkillThreat] = field(default_factory=list)
-    metadata: SkillScanMetadata | None = None
+    metadata: Optional[SkillScanMetadata] = None
 
 
-# ── Audit ─────────────────────────────────────────────────────────────────────
+# -- Audit -----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class AuditQuery:
     """Query parameters for fetching audit logs."""
 
-    from_time: str | None = None
-    to: str | None = None
-    level: Literal["ALLOW", "BLOCK", "QUARANTINE"] | None = None
-    source: str | None = None
-    device_id: str | None = None
-    search: str | None = None
+    from_time: Optional[str] = None
+    to: Optional[str] = None
+    level: Optional[Literal["ALLOW", "BLOCK", "QUARANTINE"]] = None
+    source: Optional[str] = None
+    device_id: Optional[str] = None
+    search: Optional[str] = None
     limit: int = 100
     offset: int = 0
 
@@ -141,8 +145,8 @@ class AuditEntry:
     threat_indicators: list[str]
     reason: str
     pipeline_duration_ms: int
-    device_id: str | None = None
-    device_name: str | None = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -189,14 +193,14 @@ class TrendResponse:
     time_range: str
 
 
-# ── Quarantine ────────────────────────────────────────────────────────────────
+# -- Quarantine ------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class QuarantineQuery:
     """Query parameters for fetching quarantine items."""
 
-    status: Literal["pending", "approved", "rejected", "expired"] | None = None
+    status: Optional[Literal["pending", "approved", "rejected", "expired"]] = None
     limit: int = 50
     offset: int = 0
 
@@ -211,14 +215,14 @@ class QuarantineItem:
     source_type: str
     source_identifier: str
     created_at: str
-    content: str | None = None
-    title: str | None = None
-    firewall_result: str | None = None
-    reviewed_at: str | None = None
-    reviewed_by: str | None = None
-    device_id: str | None = None
-    device_name: str | None = None
-    expires_at: str | None = None
+    content: Optional[str] = None
+    title: Optional[str] = None
+    firewall_result: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+    expires_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -233,7 +237,7 @@ class ReviewResponse:
     message: str
 
 
-# ── API Keys ──────────────────────────────────────────────────────────────────
+# -- API Keys --------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -241,7 +245,7 @@ class KeyInfo:
     id: int
     name: str
     scopes: list[str]
-    expires_at: str | None = None
+    expires_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -249,7 +253,7 @@ class CreateKeyResponse:
     message: str
     key: str
     key_info: KeyInfo
-    warning: str | None = None
+    warning: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -259,8 +263,8 @@ class KeyListItem:
     prefix: str
     scopes: list[str]
     revoked: bool
-    last_used_at: str | None = None
-    created_at: str | None = None
+    last_used_at: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -269,7 +273,7 @@ class KeyListResponse:
     total: int
 
 
-# ── Teams ─────────────────────────────────────────────────────────────────────
+# -- Teams -----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -286,8 +290,8 @@ class TeamMember:
     id: int
     email: str
     role: Literal["owner", "admin", "member"]
-    name: str | None = None
-    joined_at: str | None = None
+    name: Optional[str] = None
+    joined_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -311,7 +315,7 @@ class UsageResponse:
     breakdown: UsageBreakdown
 
 
-# ── Invites ───────────────────────────────────────────────────────────────────
+# -- Invites ---------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -322,7 +326,7 @@ class Invite:
     status: str
     expires_at: str
     created_at: str
-    invited_by: int | None = None
+    invited_by: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -331,7 +335,7 @@ class InviteListResponse:
     total: int
 
 
-# ── Billing ───────────────────────────────────────────────────────────────────
+# -- Billing ---------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -344,7 +348,7 @@ class PortalResponse:
     url: str
 
 
-# ── Devices ───────────────────────────────────────────────────────────────────
+# -- Devices ---------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -357,7 +361,7 @@ class Device:
     scan_count: int = 0
 
 
-# ── Alerts ────────────────────────────────────────────────────────────────────
+# -- Alerts ----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -369,11 +373,11 @@ class AlertRule:
     trigger_on_quarantine: bool
     email_recipients: list[str]
     created_at: str
-    trigger_on_anomaly_above: float | None = None
-    last_triggered_at: str | None = None
+    trigger_on_anomaly_above: Optional[float] = None
+    last_triggered_at: Optional[str] = None
 
 
-# ── Webhooks ──────────────────────────────────────────────────────────────────
+# -- Webhooks --------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -385,9 +389,9 @@ class Webhook:
     events: list[str]
     consecutive_failures: int
     created_at: str
-    last_delivery_at: str | None = None
-    last_delivery_status: int | None = None
-    auto_disabled_at: str | None = None
+    last_delivery_at: Optional[str] = None
+    last_delivery_status: Optional[int] = None
+    auto_disabled_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -409,8 +413,8 @@ class WebhookDelivery:
     success: bool
     created_at: str
     duration_ms: int = 0
-    payload: dict[str, Any] | None = None
-    response_body: str | None = None
+    payload: Optional[dict[str, Any]] = None
+    response_body: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -421,7 +425,7 @@ class TestWebhookResponse:
     message: str
 
 
-# ── Firewall Rules ────────────────────────────────────────────────────────────
+# -- Firewall Rules --------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -432,9 +436,9 @@ class FirewallRule:
     priority: int
     rule_type: str
     created_at: str
-    description: str | None = None
-    config_overrides: dict[str, Any] | None = None
-    pattern_config: dict[str, Any] | None = None
-    source_config: dict[str, Any] | None = None
-    updated_at: str | None = None
-    created_by: int | None = None
+    description: Optional[str] = None
+    config_overrides: Optional[dict[str, Any]] = None
+    pattern_config: Optional[dict[str, Any]] = None
+    source_config: Optional[dict[str, Any]] = None
+    updated_at: Optional[str] = None
+    created_by: Optional[int] = None

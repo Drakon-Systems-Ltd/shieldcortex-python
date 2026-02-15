@@ -76,3 +76,6 @@ target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+# UP007/UP045: Don't convert Optional[X] to X | None — types.py dataclass fields
+# are evaluated at runtime by get_type_hints(), and X | None requires Python 3.10+.
+ignore = ["UP007", "UP045"]
