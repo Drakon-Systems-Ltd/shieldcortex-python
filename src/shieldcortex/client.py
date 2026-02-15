@@ -9,7 +9,7 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any, Literal, TypeVar
 
 import httpx
@@ -208,7 +208,7 @@ class ShieldCortex:
         query: AuditQuery | None = None,
         *,
         page_size: int = 100,
-    ) -> Iterator[AuditEntry]:
+    ) -> Iterable[AuditEntry]:
         """Iterate all matching audit logs with automatic pagination.
 
         Example::

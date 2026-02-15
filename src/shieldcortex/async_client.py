@@ -9,7 +9,7 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable
 from typing import Any, Literal, TypeVar
 
 import httpx
@@ -208,7 +208,7 @@ class AsyncShieldCortex:
         query: AuditQuery | None = None,
         *,
         page_size: int = 100,
-    ) -> AsyncIterator[AuditEntry]:
+    ) -> AsyncIterable[AuditEntry]:
         """Iterate all matching audit logs with automatic pagination."""
         from shieldcortex.pagination import AsyncAuditPaginator
 

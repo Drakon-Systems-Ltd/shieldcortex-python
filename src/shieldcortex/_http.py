@@ -153,10 +153,10 @@ def deserialize(data: Any, cls: type[T]) -> T:
     - Optional fields with defaults
     """
     if not dataclasses.is_dataclass(cls):
-        return data  # type: ignore[return-value]
+        return data  # type: ignore[no-any-return]
 
     if not isinstance(data, dict):
-        return data  # type: ignore[return-value]
+        return data  # type: ignore[no-any-return]
 
     normalised = _normalise_keys(data)
     hints = _get_hints(cls)
@@ -177,11 +177,11 @@ def deserialize(data: Any, cls: type[T]) -> T:
         if value is None:
             kwargs[fname] = None
         elif dataclasses.is_dataclass(inner_hint) and isinstance(value, dict):
-            kwargs[fname] = deserialize(value, inner_hint)
+            kwargs[fname] = deserialize(value, inner_hint)  # type: ignore[arg-type]
         elif _is_list_type(inner_hint) and isinstance(value, list):
             item_type = _get_list_item_type(inner_hint)
             if dataclasses.is_dataclass(item_type):
-                kwargs[fname] = [deserialize(item, item_type) for item in value]
+                kwargs[fname] = [deserialize(item, item_type) for item in value]  # type: ignore[arg-type]
             else:
                 kwargs[fname] = value
         else:

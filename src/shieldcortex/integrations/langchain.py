@@ -40,7 +40,7 @@ from shieldcortex.async_client import AsyncShieldCortex
 logger = logging.getLogger("shieldcortex.langchain")
 
 
-class ShieldCortexCallbackHandler(AsyncCallbackHandler):
+class ShieldCortexCallbackHandler(AsyncCallbackHandler):  # type: ignore[misc]
     """LangChain async callback handler that scans content through ShieldCortex.
 
     Scans user inputs (chain start) and LLM outputs (LLM end) through
