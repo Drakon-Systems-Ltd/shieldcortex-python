@@ -114,7 +114,8 @@ def _unwrap_optional(hint: Any) -> Any:
     import typing
 
     # Python 3.10+ union: X | None (types.UnionType)
-    if isinstance(hint, builtin_types.UnionType):
+    _union_type = getattr(builtin_types, "UnionType", None)
+    if _union_type is not None and isinstance(hint, _union_type):
         args = hint.__args__
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
