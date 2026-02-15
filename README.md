@@ -6,7 +6,25 @@
 
 Official Python SDK for the [ShieldCortex](https://shieldcortex.ai) API — AI memory security scanning.
 
-ShieldCortex is a 6-layer defence pipeline that protects AI agent memory from prompt injection, credential leaks, encoding attacks, and more.
+## How It Works
+
+AI agents store memories (user inputs, tool outputs, conversation history) to improve over time. But those memories are an attack surface — prompt injection, credential leaks, and encoding attacks can all be smuggled into memory stores.
+
+ShieldCortex scans content **before** it reaches your agent's memory through a 6-layer defence pipeline:
+
+```
+Agent receives content
+        │
+        ▼
+  ShieldCortex scan ──→ BLOCK   → reject, log threat
+        │
+        ▼
+      ALLOW ──→ safe to store in memory
+```
+
+The SDK sends content to the ShieldCortex cloud API and returns a verdict: **ALLOW**, **BLOCK**, or **QUARANTINE** — along with trust scores, threat indicators, and sensitivity classification.
+
+**Get an API key** at [shieldcortex.ai](https://shieldcortex.ai) (free tier: 500 scans/month).
 
 ## Installation
 
@@ -28,14 +46,15 @@ from shieldcortex import ShieldCortex
 
 client = ShieldCortex(api_key="sc_live_...")
 
-# Scan user input before storing in memory
-result = client.scan("user input here")
+# Scan content before storing in your agent's memory
+result = client.scan("user input to remember")
 
-if not result.allowed:
+if result.allowed:
+    save_to_memory(result)  # safe — store it
+else:
     print(f"Blocked: {result.firewall.reason}")
     print(f"Threats: {result.firewall.threat_indicators}")
-else:
-    print(f"Safe (trust: {result.trust.score})")
+    # don't store — content failed security checks
 ```
 
 ## Async Support
@@ -49,6 +68,8 @@ async with AsyncShieldCortex(api_key="sc_live_...") as client:
 
 ## Batch Scanning
 
+Scan up to 100 items in a single request — useful for bulk-importing memory entries:
+
 ```python
 from shieldcortex import BatchItem
 
@@ -59,25 +80,9 @@ result = client.scan_batch([
 print(f"Scanned: {result.total_scanned}, Threats: {result.threats}")
 ```
 
-## Audit Logs
-
-```python
-from shieldcortex import AuditQuery
-
-# Query with filters
-logs = client.get_audit_logs(AuditQuery(level="BLOCK", limit=10))
-
-# Auto-paginate through all entries
-for entry in client.iter_audit_logs():
-    print(entry.id, entry.firewall_result)
-
-# Export as CSV
-csv = client.export_audit_logs(format="csv")
-```
-
 ## CrewAI Integration
 
-Scan all memory writes before they reach your store:
+Add a security gate between your CrewAI agent and its memory store. The guard scans all content before it's saved — blocking prompt injection and credential leaks:
 
 ```python
 from shieldcortex import ShieldCortex
@@ -95,7 +100,7 @@ except MemoryBlockedError as e:
 
 ## LangChain Integration
 
-Scan LLM inputs and outputs automatically:
+Automatically scan all LLM inputs and outputs as they flow through your chain — no changes to your existing code:
 
 ```python
 from shieldcortex import AsyncShieldCortex
@@ -104,8 +109,26 @@ from shieldcortex.integrations.langchain import ShieldCortexCallbackHandler
 client = AsyncShieldCortex(api_key="sc_live_...")
 handler = ShieldCortexCallbackHandler(client, raise_on_block=True)
 
-# Pass to any LangChain component
+# Scans inputs on chain start, outputs on LLM end, and tool I/O
 llm = ChatOpenAI(callbacks=[handler])
+```
+
+## Audit Logs
+
+Every scan is logged. Query your history, export for compliance, or auto-paginate through all entries:
+
+```python
+from shieldcortex import AuditQuery
+
+# Query with filters
+logs = client.get_audit_logs(AuditQuery(level="BLOCK", limit=10))
+
+# Auto-paginate through all entries
+for entry in client.iter_audit_logs():
+    print(entry.id, entry.firewall_result)
+
+# Export as CSV
+csv = client.export_audit_logs(format="csv")
 ```
 
 ## Error Handling
