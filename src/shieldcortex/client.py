@@ -37,10 +37,17 @@ from shieldcortex.types import (
     CreateWebhookResponse,
     Device,
     FirewallRule,
+    InjectionPattern,
+    InjectionPatternsResponse,
     Invite,
     InviteListResponse,
+    IronDomePoliciesResponse,
+    IronDomePolicy,
     KeyListResponse,
     MembersResponse,
+    PatternSyncResponse,
+    PatternTestResult,
+    PolicySyncResponse,
     PortalResponse,
     QuarantineItem,
     QuarantineQuery,
@@ -470,6 +477,118 @@ class ShieldCortex:
         """Delete a firewall rule."""
         self._raw_delete(f"/v1/firewall-rules/{id}")
 
+    # ── Iron Dome Patterns (Pro+) ────────────────────────────────────────────
+
+    def get_injection_patterns(self) -> InjectionPatternsResponse:
+        """List all custom injection patterns."""
+        return self._get(
+            "/v1/iron-dome/patterns", {}, InjectionPatternsResponse
+        )
+
+    def get_injection_patterns_sync(self) -> PatternSyncResponse:
+        """Get enabled patterns for local sync."""
+        return self._get(
+            "/v1/iron-dome/patterns/sync", {}, PatternSyncResponse
+        )
+
+    def create_injection_pattern(
+        self,
+        pattern: str,
+        category: str,
+        severity: Literal["critical", "high", "medium", "low"],
+        description: str,
+        test_string: str,
+    ) -> InjectionPattern:
+        """Create a custom injection pattern."""
+        return self._post(
+            "/v1/iron-dome/patterns",
+            {
+                "pattern": pattern,
+                "category": category,
+                "severity": severity,
+                "description": description,
+                "test_string": test_string,
+            },
+            InjectionPattern,
+        )
+
+    def update_injection_pattern(
+        self, id: int, **kwargs: Any
+    ) -> InjectionPattern:
+        """Update a pattern. Pass only the fields to change."""
+        return self._patch(
+            f"/v1/iron-dome/patterns/{id}", kwargs, InjectionPattern
+        )
+
+    def test_injection_pattern(
+        self, id: int, text: str
+    ) -> PatternTestResult:
+        """Test a pattern against sample text."""
+        return self._post(
+            f"/v1/iron-dome/patterns/{id}/test",
+            {"text": text},
+            PatternTestResult,
+        )
+
+    def delete_injection_pattern(self, id: int) -> None:
+        """Delete a custom injection pattern."""
+        self._raw_delete(f"/v1/iron-dome/patterns/{id}")
+
+    # ── Iron Dome Policies (Pro+) ──────────────────────────────────────────
+
+    def get_iron_dome_policies(self) -> IronDomePoliciesResponse:
+        """List all Iron Dome policies."""
+        return self._get(
+            "/v1/iron-dome/policies", {}, IronDomePoliciesResponse
+        )
+
+    def get_iron_dome_policy_sync(self) -> PolicySyncResponse:
+        """Get the default policy for local sync."""
+        return self._get(
+            "/v1/iron-dome/policies/sync", {}, PolicySyncResponse
+        )
+
+    def create_iron_dome_policy(
+        self,
+        name: str,
+        base_profile: Literal[
+            "school", "enterprise", "personal", "paranoid"
+        ],
+        *,
+        config_overrides: dict[str, Any] | None = None,
+        is_default: bool = False,
+    ) -> IronDomePolicy:
+        """Create an Iron Dome policy."""
+        payload: dict[str, Any] = {
+            "name": name,
+            "base_profile": base_profile,
+            "is_default": is_default,
+        }
+        if config_overrides is not None:
+            payload["config_overrides"] = config_overrides
+        return self._post(
+            "/v1/iron-dome/policies", payload, IronDomePolicy
+        )
+
+    def update_iron_dome_policy(
+        self, id: int, **kwargs: Any
+    ) -> IronDomePolicy:
+        """Update a policy. Pass only the fields to change."""
+        return self._patch(
+            f"/v1/iron-dome/policies/{id}", kwargs, IronDomePolicy
+        )
+
+    def set_default_iron_dome_policy(self, id: int) -> IronDomePolicy:
+        """Set a policy as the team default."""
+        response = self._raw_put(
+            f"/v1/iron-dome/policies/{id}/default", {}
+        )
+        return deserialize(response.json(), IronDomePolicy)
+
+    def delete_iron_dome_policy(self, id: int) -> None:
+        """Delete an Iron Dome policy."""
+        self._raw_delete(f"/v1/iron-dome/policies/{id}")
+
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 
     def _get(
@@ -524,6 +643,17 @@ class ShieldCortex:
         url = f"{self._base_url}{path}"
         try:
             response = self._client.patch(url, json=payload)
+        except httpx.TimeoutException as e:
+            raise ShieldCortexError(f"Request timeout: {e}", 0, str(e))
+        raise_for_status(response)
+        return response
+
+    def _raw_put(
+        self, path: str, payload: dict[str, Any]
+    ) -> httpx.Response:
+        url = f"{self._base_url}{path}"
+        try:
+            response = self._client.put(url, json=payload)
         except httpx.TimeoutException as e:
             raise ShieldCortexError(f"Request timeout: {e}", 0, str(e))
         raise_for_status(response)

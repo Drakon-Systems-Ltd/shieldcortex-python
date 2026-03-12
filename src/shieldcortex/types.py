@@ -442,3 +442,71 @@ class FirewallRule:
     source_config: Optional[dict[str, Any]] = None
     updated_at: Optional[str] = None
     created_by: Optional[int] = None
+
+
+# -- Iron Dome Patterns ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InjectionPattern:
+    id: int
+    pattern: str
+    category: str
+    severity: Literal["critical", "high", "medium", "low"]
+    description: str
+    test_string: str
+    enabled: bool
+    created_at: str
+    updated_at: Optional[str] = None
+    created_by: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class InjectionPatternsResponse:
+    patterns: list[InjectionPattern]
+
+
+@dataclass(frozen=True)
+class PatternSyncItem:
+    pattern: str
+    category: str
+    severity: str
+
+
+@dataclass(frozen=True)
+class PatternSyncResponse:
+    patterns: list[PatternSyncItem]
+    updated_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PatternTestResult:
+    matched: bool
+    match_count: int
+    matches: list[str] = field(default_factory=list)
+
+
+# -- Iron Dome Policies ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IronDomePolicy:
+    id: int
+    name: str
+    base_profile: Literal["school", "enterprise", "personal", "paranoid"]
+    config_overrides: dict[str, Any]
+    is_default: bool
+    created_at: str
+    updated_at: Optional[str] = None
+    created_by: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class IronDomePoliciesResponse:
+    policies: list[IronDomePolicy]
+
+
+@dataclass(frozen=True)
+class PolicySyncResponse:
+    policy: Optional[dict[str, Any]] = None
+    updated_at: Optional[str] = None

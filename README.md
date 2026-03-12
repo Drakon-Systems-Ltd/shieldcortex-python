@@ -163,6 +163,7 @@ The SDK covers all ShieldCortex API endpoints:
 | **Alerts** | `get_alerts()`, `create_alert()`, `update_alert()`, `delete_alert()` |
 | **Webhooks** | `get_webhooks()`, `create_webhook()`, `update_webhook()`, `delete_webhook()`, `test_webhook()`, `get_webhook_deliveries()` |
 | **Firewall Rules** | `get_firewall_rules()`, `get_active_firewall_rules()`, `create_firewall_rule()`, `update_firewall_rule()`, `delete_firewall_rule()` |
+| **Iron Dome** | `get_injection_patterns()`, `get_injection_patterns_sync()`, `create_injection_pattern()`, `update_injection_pattern()`, `test_injection_pattern()`, `delete_injection_pattern()`, `get_iron_dome_policies()`, `get_iron_dome_policy_sync()`, `create_iron_dome_policy()`, `update_iron_dome_policy()`, `set_default_iron_dome_policy()`, `delete_iron_dome_policy()` |
 
 ## Documentation
 

@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from shieldcortex import (
+    AsyncShieldCortex,
     AuditQuery,
     BatchItem,
     QuarantineQuery,
@@ -339,6 +340,64 @@ def test_get_usage(client: ShieldCortex) -> None:
 
     assert result.used == 450
     assert result.breakdown.scans == 300
+
+
+# ── Iron Dome ────────────────────────────────────────────────────────────────
+
+
+@respx.mock
+def test_set_default_iron_dome_policy_uses_put(client: ShieldCortex) -> None:
+    route = respx.put(f"{BASE}/v1/iron-dome/policies/7/default").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "name": "Enterprise Default",
+                "base_profile": "enterprise",
+                "config_overrides": {},
+                "is_default": True,
+                "created_at": "2026-03-12T12:00:00.000Z",
+                "updated_at": "2026-03-12T12:05:00.000Z",
+                "created_by": 3,
+            },
+        )
+    )
+
+    result = client.set_default_iron_dome_policy(7)
+
+    assert result.id == 7
+    assert result.is_default is True
+    assert route.called is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_set_default_iron_dome_policy_uses_put() -> None:
+    route = respx.put(f"{BASE}/v1/iron-dome/policies/7/default").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "name": "Enterprise Default",
+                "base_profile": "enterprise",
+                "config_overrides": {},
+                "is_default": True,
+                "created_at": "2026-03-12T12:00:00.000Z",
+                "updated_at": "2026-03-12T12:05:00.000Z",
+                "created_by": 3,
+            },
+        )
+    )
+
+    client = AsyncShieldCortex(api_key="sc_test_abc123", base_url=BASE)
+    try:
+        result = await client.set_default_iron_dome_policy(7)
+    finally:
+        await client.close()
+
+    assert result.id == 7
+    assert result.is_default is True
+    assert route.called is True
 
 
 # ── Error handling ────────────────────────────────────────────────────────────
