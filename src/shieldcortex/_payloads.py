@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from shieldcortex._http import serialize_snake
 from shieldcortex.types import (
+    AuditIngestEntry,
     SkillScanFile,
     SyncGraphEntity,
     SyncGraphTriple,
@@ -254,3 +255,80 @@ def sync_graph_payload(
     if prune_memory_external_ids is not None:
         payload["prune_memory_external_ids"] = prune_memory_external_ids
     return payload
+
+
+# ── Audit Iron Dome & Exports ─────────────────────────────────────────────────
+
+
+def iron_dome_stats_params(
+    *,
+    time_range: Literal["24h", "7d", "30d"],
+    device_id: str | None,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/iron-dome/stats.
+
+    NOTE: ``timeRange`` is camelCase on the wire (deliberate API wart,
+    shared with the trends family).
+    """
+    params: dict[str, str] = {"timeRange": time_range}
+    if device_id is not None:
+        params["device_id"] = device_id
+    return params
+
+
+def iron_dome_events_params(
+    *,
+    time_range: Literal["24h", "7d", "30d"],
+    device_id: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/iron-dome/events (camelCase timeRange)."""
+    params = iron_dome_stats_params(time_range=time_range, device_id=device_id)
+    params["limit"] = str(limit)
+    params["offset"] = str(offset)
+    return params
+
+
+def audit_ingest_payload(entries: list[AuditIngestEntry]) -> dict[str, Any]:
+    """Body for POST /v1/audit/ingest — always the canonical entries shape."""
+    return {"entries": serialize_snake(entries)}
+
+
+def audit_exports_params(
+    *,
+    limit: int,
+    offset: int,
+    format: Literal["csv", "json"] | None,
+    shape: Literal["array", "envelope"] | None,
+    search: str | None,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/exports."""
+    params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+    if format is not None:
+        params["format"] = format
+    if shape is not None:
+        params["shape"] = shape
+    if search is not None:
+        params["search"] = search
+    return params
+
+
+def export_verify_payload(
+    *,
+    export_sha256: str | None,
+    signature: str | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/audit/exports/:manifestId/verify (both optional;
+    an empty body triggers the server-side signature self-check)."""
+    payload: dict[str, Any] = {}
+    if export_sha256 is not None:
+        payload["export_sha256"] = export_sha256
+    if signature is not None:
+        payload["signature"] = signature
+    return payload
+
+
+def export_verifications_params(*, limit: int, offset: int) -> dict[str, str]:
+    """Query params for GET /v1/audit/exports/:manifestId/verifications."""
+    return {"limit": str(limit), "offset": str(offset)}

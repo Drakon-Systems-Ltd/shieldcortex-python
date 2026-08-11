@@ -962,6 +962,208 @@ class RegenerateLicenseResponse:
     message: str
 
 
+# -- Audit Iron Dome & Exports ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class IronDomeTopDevice:
+    device_id: str
+    count: int
+    device_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class IronDomeStats:
+    """GET /v1/audit/iron-dome/stats (Pro+ — free plans get 402).
+
+    ``by_action`` keys are the ``[iron-dome:<action>]`` reason prefixes,
+    with ``"unknown"`` as the fallback bucket.
+    """
+
+    total_events: int
+    blocked: int
+    allowed: int
+    by_action: dict[str, int] = field(default_factory=dict)
+    top_devices: list[IronDomeTopDevice] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class IronDomeEvent:
+    """An Iron Dome audit row from GET /v1/audit/iron-dome/events.
+
+    ``device_id`` is the device UUID (not the DB id).
+    """
+
+    id: int
+    timestamp: str
+    source_type: str
+    source_identifier: str
+    trust_score: float
+    sensitivity_level: str
+    firewall_result: Literal["ALLOW", "BLOCK", "QUARANTINE"]
+    anomaly_score: float
+    threat_indicators: list[str]
+    pipeline_duration_ms: int
+    action_type: str
+    reason: Optional[str] = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class IronDomeEventsResponse:
+    """GET /v1/audit/iron-dome/events.
+
+    NOTE: this envelope carries NO ``total`` (unlike GET /v1/audit);
+    ``pagination.has_more`` is the page-full heuristic.
+    """
+
+    events: list[IronDomeEvent]
+    pagination: Pagination
+
+
+@dataclass(frozen=True)
+class AuditIngestEntry:
+    """A canonical audit entry to submit via POST /v1/audit/ingest.
+
+    Unset optionals are omitted from the wire (never sent as null).
+    """
+
+    source_type: str
+    source_identifier: str
+    trust_score: float
+    sensitivity_level: str
+    firewall_result: Literal["ALLOW", "BLOCK", "QUARANTINE"]
+    anomaly_score: float
+    threat_indicators: list[str]
+    reason: str
+    pipeline_duration_ms: int
+    timestamp: str
+    blocked_patterns: Optional[list[str]] = None
+    fragmentation_score: Optional[float] = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class AuditIngestResponse:
+    """POST /v1/audit/ingest (201).
+
+    ``ingested`` is the submitted count — duplicate entries are silently
+    deduped server-side but still counted here.
+    """
+
+    ingested: int
+
+
+@dataclass(frozen=True)
+class ExportManifest:
+    """A signed export manifest row from GET /v1/audit/exports.
+
+    ``filters`` is kept as a raw dict because its wire keys include
+    ``from`` (a Python keyword); keys: from, to, level, source, device_id,
+    search — all nullable. ``team_id`` only appears on the detail endpoint.
+    """
+
+    manifest_id: str
+    request_id: str
+    format: Literal["csv", "json"]
+    shape: Literal["array", "envelope"]
+    entry_count: int
+    export_sha256: str
+    signature_algorithm: str
+    signature: str
+    generated_at: str
+    created_at: str
+    api_key_id: Optional[int] = None
+    filters: dict[str, Any] = field(default_factory=dict)
+    team_id: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ExportManifestListResponse:
+    """GET /v1/audit/exports.
+
+    NOTE: this envelope carries NO ``total``.
+    """
+
+    manifests: list[ExportManifest]
+    pagination: Pagination
+
+
+@dataclass(frozen=True)
+class ManifestVerification:
+    """The server-side signature check attached to a manifest read."""
+
+    signature_valid: bool
+    signature_algorithm: str
+
+
+@dataclass(frozen=True)
+class ExportManifestDetail:
+    """GET /v1/audit/exports/:manifestId — the HMAC is recomputed on read,
+    so ``verification.signature_valid`` false signals tampering or secret
+    rotation."""
+
+    manifest: ExportManifest
+    verification: ManifestVerification
+
+
+@dataclass(frozen=True)
+class ExportVerifyResult:
+    """Verification outcome for POST /v1/audit/exports/:manifestId/verify.
+
+    ``sha256_matches`` is null when no ``export_sha256`` was provided.
+    """
+
+    signature_valid: bool
+    signature_algorithm: str
+    sha256_matches: Optional[bool] = None
+
+
+@dataclass(frozen=True)
+class ExportVerifyExpected:
+    export_sha256: str
+    signature: str
+
+
+@dataclass(frozen=True)
+class ExportVerifyResponse:
+    manifest_id: str
+    verification: ExportVerifyResult
+    expected: ExportVerifyExpected
+
+
+@dataclass(frozen=True)
+class ExportVerificationEvent:
+    """A persisted verification event from
+    GET /v1/audit/exports/:manifestId/verifications."""
+
+    id: int
+    manifest_id: str
+    request_id: str
+    result_signature_valid: bool
+    created_at: str
+    api_key_id: Optional[int] = None
+    provided_export_sha256: Optional[str] = None
+    provided_signature: Optional[str] = None
+    result_sha256_matches: Optional[bool] = None
+
+
+@dataclass(frozen=True)
+class ExportVerificationListResponse:
+    """GET /v1/audit/exports/:manifestId/verifications.
+
+    NOTE: this envelope carries NO ``total``; an unknown manifestId
+    returns 200 with empty events (no existence check), unlike the
+    manifest GET which 404s.
+    """
+
+    events: list[ExportVerificationEvent]
+    pagination: Pagination
+
+
 # -- Recall ----------------------------------------------------------------
 
 

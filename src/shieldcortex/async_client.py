@@ -24,7 +24,13 @@ from shieldcortex._http import (
     serialize_query,
 )
 from shieldcortex._payloads import (
+    audit_exports_params,
+    audit_ingest_payload,
+    export_verifications_params,
+    export_verify_payload,
     incident_replay_params,
+    iron_dome_events_params,
+    iron_dome_stats_params,
     recall_explain_params,
     skill_ingest_payload,
     skill_list_params,
@@ -39,6 +45,8 @@ from shieldcortex.errors import ShieldCortexError
 from shieldcortex.types import (
     AlertRule,
     AuditEntry,
+    AuditIngestEntry,
+    AuditIngestResponse,
     AuditQuery,
     AuditResponse,
     AuditStats,
@@ -49,14 +57,20 @@ from shieldcortex.types import (
     CreateWebhookResponse,
     DeleteVerificationResponse,
     Device,
+    ExportManifestDetail,
+    ExportManifestListResponse,
+    ExportVerificationListResponse,
+    ExportVerifyResponse,
     FirewallRule,
     IncidentReplayResponse,
     InjectionPattern,
     InjectionPatternsResponse,
     Invite,
     InviteListResponse,
+    IronDomeEventsResponse,
     IronDomePoliciesResponse,
     IronDomePolicy,
+    IronDomeStats,
     KeyListResponse,
     LicenseInfo,
     MembersResponse,
@@ -870,6 +884,123 @@ class AsyncShieldCortex:
         Free-plan teams get 402 Plan Required."""
         return await self._post(
             "/v1/license/regenerate", {}, RegenerateLicenseResponse
+        )
+
+    # ── Audit Iron Dome & Exports ─────────────────────────────────────────────
+
+    async def get_iron_dome_stats(
+        self,
+        *,
+        time_range: Literal["24h", "7d", "30d"] = "24h",
+        device_id: str | None = None,
+    ) -> IronDomeStats:
+        """Get Iron Dome event stats (Pro+ — free plans get 402 Payment
+        Required). The ``timeRange`` query param is camelCase on the wire.
+        An unknown ``device_id`` returns zeros, never 404."""
+        params = iron_dome_stats_params(
+            time_range=time_range, device_id=device_id
+        )
+        return await self._get(
+            "/v1/audit/iron-dome/stats", params, IronDomeStats
+        )
+
+    async def get_iron_dome_events(
+        self,
+        *,
+        time_range: Literal["24h", "7d", "30d"] = "24h",
+        device_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> IronDomeEventsResponse:
+        """List Iron Dome audit events (Pro+ — free plans get 402). The
+        envelope carries NO ``total`` (unlike GET /v1/audit); ``has_more``
+        is the page-full heuristic."""
+        params = iron_dome_events_params(
+            time_range=time_range,
+            device_id=device_id,
+            limit=limit,
+            offset=offset,
+        )
+        return await self._get(
+            "/v1/audit/iron-dome/events", params, IronDomeEventsResponse
+        )
+
+    async def ingest_audit_events(
+        self, entries: list[AuditIngestEntry]
+    ) -> AuditIngestResponse:
+        """Bulk ingest canonical audit entries (1–100; audit or admin
+        scope). Consumes monthly scan quota — exceeding it returns 402
+        with a camelCase ``usage`` object. Duplicates are silently deduped
+        server-side but ``ingested`` echoes the submitted count."""
+        payload = audit_ingest_payload(entries)
+        return await self._post(
+            "/v1/audit/ingest", payload, AuditIngestResponse
+        )
+
+    async def list_audit_exports(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        format: Literal["csv", "json"] | None = None,
+        shape: Literal["array", "envelope"] | None = None,
+        search: str | None = None,
+    ) -> ExportManifestListResponse:
+        """List signed export manifests (audit or admin scope). Every call
+        to ``export_audit_logs`` persists one, even for empty exports.
+        The envelope carries NO ``total``."""
+        params = audit_exports_params(
+            limit=limit, offset=offset, format=format, shape=shape, search=search
+        )
+        return await self._get(
+            "/v1/audit/exports", params, ExportManifestListResponse
+        )
+
+    async def get_audit_export_manifest(
+        self, manifest_id: str
+    ) -> ExportManifestDetail:
+        """Get a single export manifest with a fresh server-side signature
+        check (audit or admin scope). ``verification.signature_valid``
+        false signals tampering or signing-secret rotation."""
+        return await self._get(
+            f"/v1/audit/exports/{manifest_id}", {}, ExportManifestDetail
+        )
+
+    async def verify_audit_export(
+        self,
+        manifest_id: str,
+        *,
+        export_sha256: str | None = None,
+        signature: str | None = None,
+    ) -> ExportVerifyResponse:
+        """Verify an export against its signed manifest (audit or admin
+        scope). ``sha256_matches`` is None when no ``export_sha256`` was
+        provided; with no ``signature`` the stored one is self-checked.
+        Every call persists a verification event."""
+        payload = export_verify_payload(
+            export_sha256=export_sha256, signature=signature
+        )
+        return await self._post(
+            f"/v1/audit/exports/{manifest_id}/verify",
+            payload,
+            ExportVerifyResponse,
+        )
+
+    async def list_audit_export_verifications(
+        self,
+        manifest_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ExportVerificationListResponse:
+        """List persisted verification events for a manifest (audit or
+        admin scope). An unknown manifestId returns 200 with empty events
+        (no existence check); the envelope carries NO ``total``."""
+        params = export_verifications_params(limit=limit, offset=offset)
+        return await self._get(
+            f"/v1/audit/exports/{manifest_id}/verifications",
+            params,
+            ExportVerificationListResponse,
         )
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
