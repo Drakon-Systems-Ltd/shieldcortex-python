@@ -193,6 +193,37 @@ class TrendResponse:
     time_range: str
 
 
+@dataclass(frozen=True)
+class AuditExportHeaders:
+    """Parsed ``X-ShieldCortex-Export-*`` integrity headers.
+
+    ``sha256`` and ``signature`` are load-bearing: when the header is
+    absent the field is ``None`` (never ``""``), meaning the export CANNOT
+    be verified — treat it as unverifiable rather than comparing against
+    an empty string.
+    """
+
+    #: Hex SHA-256 of the exact body. None when absent — export is unverifiable.
+    sha256: Optional[str]
+    #: Entry count. None when the header is absent or non-numeric.
+    count: Optional[int]
+    generated_at: str
+    manifest_id: str
+    #: HMAC-SHA256 hex signature. None when absent — export is unverifiable.
+    signature: Optional[str]
+    signature_algorithm: str
+    manifest_persisted: bool
+
+
+@dataclass(frozen=True)
+class AuditExportResult:
+    """Raw audit export body plus its integrity headers."""
+
+    #: CSV text, a bare JSON array, or a ``{meta, entries}`` envelope.
+    content: str
+    headers: AuditExportHeaders
+
+
 # -- Quarantine ------------------------------------------------------------
 
 

@@ -20,6 +20,7 @@ from shieldcortex._http import (
     DEFAULT_TIMEOUT,
     build_headers,
     deserialize,
+    parse_export_headers,
     raise_for_status,
     serialize,
     serialize_query,
@@ -46,6 +47,7 @@ from shieldcortex.errors import ShieldCortexError
 from shieldcortex.types import (
     AlertRule,
     AuditEntry,
+    AuditExportResult,
     AuditIngestEntry,
     AuditIngestResponse,
     AuditQuery,
@@ -250,13 +252,21 @@ class ShieldCortex:
         *,
         format: Literal["json", "csv"] = "json",
         query: AuditQuery | None = None,
-    ) -> str:
-        """Export audit logs as JSON or CSV string."""
+    ) -> AuditExportResult:
+        """Download audit logs as a file body (CSV text or JSON). Unlike
+        every other endpoint this does NOT return a JSON envelope — the raw
+        body is handed back verbatim in ``content`` alongside the parsed
+        ``X-ShieldCortex-Export-*`` integrity headers. Absent
+        ``headers.sha256``/``headers.signature`` ⇒ the export is
+        unverifiable."""
         params: dict[str, str] = {"format": format}
         if query:
             params.update(serialize_query(query))
         response = self._raw_get("/v1/audit/export", params)
-        return response.text
+        return AuditExportResult(
+            content=response.text,
+            headers=parse_export_headers(response.headers),
+        )
 
     def iter_audit_logs(
         self,

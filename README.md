@@ -127,8 +127,10 @@ logs = client.get_audit_logs(AuditQuery(level="BLOCK", limit=10))
 for entry in client.iter_audit_logs():
     print(entry.id, entry.firewall_result)
 
-# Export as CSV
-csv = client.export_audit_logs(format="csv")
+# Export as CSV — returns the raw body plus integrity headers
+export = client.export_audit_logs(format="csv")
+print(export.content)
+print(export.headers.sha256)  # None ⇒ export unverifiable
 ```
 
 ## Error Handling

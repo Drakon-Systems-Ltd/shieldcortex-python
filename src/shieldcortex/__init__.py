@@ -24,6 +24,8 @@ from shieldcortex.errors import (
 from shieldcortex.types import (
     AlertRule,
     AuditEntry,
+    AuditExportHeaders,
+    AuditExportResult,
     AuditIngestEntry,
     AuditIngestResponse,
     AuditQuery,
@@ -162,6 +164,8 @@ __all__ = [
     "AuditEntry",
     "AuditResponse",
     "AuditStats",
+    "AuditExportHeaders",
+    "AuditExportResult",
     "SourceCount",
     "TrendBucket",
     "TrendResponse",
