@@ -745,6 +745,194 @@ class IncidentReplayResponse:
     coverage: IncidentCoverage
 
 
+# -- Sync ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SyncHealth:
+    """GET /v1/sync/health — sync-table presence check for the team."""
+
+    status: Literal["ok", "degraded"]
+    team_id: int
+    required_tables: list[str]
+    present_tables: list[str]
+    missing_tables: list[str]
+
+
+@dataclass(frozen=True)
+class SyncMemory:
+    """A memory to push via POST /v1/sync/memories.
+
+    Unset optionals are omitted from the wire (never sent as null). Set
+    ``deleted_at`` to tombstone a memory on the server.
+    """
+
+    external_id: str
+    type: str
+    category: str
+    title: str
+    content: str
+    created_at: str
+    updated_at: str
+    local_id: Optional[int] = None
+    project: Optional[str] = None
+    tags: Optional[list[str]] = None
+    salience: Optional[float] = None
+    scope: Optional[Literal["project", "global"]] = None
+    transferable: Optional[bool] = None
+    trust_score: Optional[float] = None
+    sensitivity_level: Optional[str] = None
+    source: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+    deleted_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncPushResponse:
+    """POST /v1/sync/memories — includes the tombstone (deleted) count."""
+
+    received: int
+    upserted: int
+    deleted: int
+    device_id: str
+
+
+@dataclass(frozen=True)
+class SyncedMemory:
+    """A synced memory row from GET /v1/sync/memories."""
+
+    external_id: str
+    type: str
+    category: str
+    title: str
+    content: str
+    tags: list[str]
+    salience: float
+    scope: str
+    transferable: bool
+    is_canonical: bool
+    device_uuid: str
+    local_id: Optional[int] = None
+    project: Optional[str] = None
+    trust_score: Optional[float] = None
+    sensitivity_level: Optional[str] = None
+    source: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    review_status: Optional[Literal["suppressed", "archived", "canonical"]] = None
+    review_note: Optional[str] = None
+    review_assignee: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    deleted_at: Optional[str] = None
+    last_synced_at: Optional[str] = None
+    device_name: Optional[str] = None
+    device_platform: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncLatestDeviceSync:
+    device_uuid: str
+    device_name: Optional[str] = None
+    last_synced_at: Optional[str] = None
+    platform: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncDeviceHealth:
+    device_uuid: str
+    memory_count: int
+    status: Literal["healthy", "stale", "offline"]
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+    last_seen: Optional[str] = None
+    last_synced_at: Optional[str] = None
+    last_updated_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncHealthSummary:
+    healthy_devices: int
+    stale_devices: int
+    offline_devices: int
+    latest_device_sync: Optional[SyncLatestDeviceSync] = None
+    devices: list[SyncDeviceHealth] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SyncMemorySummary:
+    total: int
+    deleted: int
+    devices: int
+    projects: int
+    health: SyncHealthSummary
+    last_synced_at: Optional[str] = None
+    last_updated_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncedMemoriesResponse:
+    """GET /v1/sync/memories.
+
+    NOTE: the API omits the entire ``summary`` key on the unknown-device
+    branch (200 with empty memories), so ``summary`` is optional here.
+    """
+
+    memories: list[SyncedMemory]
+    total: int
+    pagination: Pagination
+    summary: Optional[SyncMemorySummary] = None
+
+
+@dataclass(frozen=True)
+class SyncGraphEntity:
+    """An entity to push via POST /v1/sync/graph."""
+
+    external_id: str
+    name: str
+    type: str
+    local_id: Optional[int] = None
+    aliases: Optional[list[str]] = None
+    first_seen: Optional[str] = None
+    memory_count: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class SyncGraphTriple:
+    """A subject–predicate–object triple to push via POST /v1/sync/graph."""
+
+    external_id: str
+    subject_external_id: str
+    predicate: str
+    object_external_id: str
+    local_id: Optional[int] = None
+    source_memory_external_id: Optional[str] = None
+    confidence: Optional[float] = None
+    created_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncMemoryEntityLink:
+    """A memory ↔ entity link to push via POST /v1/sync/graph."""
+
+    memory_external_id: str
+    entity_external_id: str
+    role: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SyncGraphResponse:
+    """POST /v1/sync/graph — counts of upserted/pruned rows."""
+
+    device_id: str
+    entities: int
+    triples: int
+    memory_entities: int
+    pruned_memories: int
+    orphan_entities_pruned: int
+
+
 # -- Recall ----------------------------------------------------------------
 
 

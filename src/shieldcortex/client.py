@@ -28,6 +28,9 @@ from shieldcortex._payloads import (
     recall_explain_params,
     skill_ingest_payload,
     skill_list_params,
+    sync_graph_payload,
+    sync_memories_payload,
+    synced_memories_params,
     threat_report_payload,
     verification_list_params,
     verify_submit_payload,
@@ -72,6 +75,14 @@ from shieldcortex.types import (
     SkillScanFile,
     SkillScanListResponse,
     SkillScanResult,
+    SyncedMemoriesResponse,
+    SyncGraphEntity,
+    SyncGraphResponse,
+    SyncGraphTriple,
+    SyncHealth,
+    SyncMemory,
+    SyncMemoryEntityLink,
+    SyncPushResponse,
     TeamInfo,
     TestWebhookResponse,
     ThreatReportResponse,
@@ -767,6 +778,81 @@ class ShieldCortex:
             query, project=project, device_id=device_id, limit=limit
         )
         return self._get("/v1/recall/explain", params, RecallExplainResponse)
+
+    # ── Sync ──────────────────────────────────────────────────────────────────
+
+    def get_sync_health(self) -> SyncHealth:
+        """Check that the team's sync tables are present (audit or admin
+        scope). ``status`` degrades when any required table is missing."""
+        return self._get("/v1/sync/health", {}, SyncHealth)
+
+    def push_memories(
+        self,
+        memories: list[SyncMemory],
+        *,
+        device_id: str,
+        device_name: str | None = None,
+        platform: str | None = None,
+    ) -> SyncPushResponse:
+        """Push a batch of memories (1–200) for a device (audit or admin
+        scope). The response includes the tombstone (``deleted``) count.
+        Exceeding the per-plan synced-memory cap returns 402 with a
+        ``synced: {used, limit}`` object in the error body."""
+        payload = sync_memories_payload(
+            memories,
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+        )
+        return self._post("/v1/sync/memories", payload, SyncPushResponse)
+
+    def list_synced_memories(
+        self,
+        *,
+        device_id: str | None = None,
+        project: str | None = None,
+        search: str | None = None,
+        include_deleted: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> SyncedMemoriesResponse:
+        """List synced memories (audit or admin scope). An unknown
+        ``device_id`` returns an empty 200 with NO ``summary`` key, so
+        ``summary`` is ``None`` on that branch."""
+        params = synced_memories_params(
+            device_id=device_id,
+            project=project,
+            search=search,
+            include_deleted=include_deleted,
+            limit=limit,
+            offset=offset,
+        )
+        return self._get("/v1/sync/memories", params, SyncedMemoriesResponse)
+
+    def push_memory_graph(
+        self,
+        *,
+        device_id: str,
+        device_name: str | None = None,
+        platform: str | None = None,
+        entities: list[SyncGraphEntity] | None = None,
+        triples: list[SyncGraphTriple] | None = None,
+        memory_entities: list[SyncMemoryEntityLink] | None = None,
+        prune_memory_external_ids: list[str] | None = None,
+    ) -> SyncGraphResponse:
+        """Push memory-graph entities/triples/links for a device (audit or
+        admin scope). At least one of the four collections must be non-empty
+        or the API rejects the request with 400."""
+        payload = sync_graph_payload(
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+            entities=entities,
+            triples=triples,
+            memory_entities=memory_entities,
+            prune_memory_external_ids=prune_memory_external_ids,
+        )
+        return self._post("/v1/sync/graph", payload, SyncGraphResponse)
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 

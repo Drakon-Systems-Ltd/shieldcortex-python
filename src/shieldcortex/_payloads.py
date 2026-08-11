@@ -11,7 +11,13 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from shieldcortex._http import serialize_snake
-from shieldcortex.types import SkillScanFile
+from shieldcortex.types import (
+    SkillScanFile,
+    SyncGraphEntity,
+    SyncGraphTriple,
+    SyncMemory,
+    SyncMemoryEntityLink,
+)
 
 # ── Verification ──────────────────────────────────────────────────────────────
 
@@ -171,3 +177,80 @@ def recall_explain_params(
     if device_id is not None:
         params["device_id"] = device_id
     return params
+
+
+# ── Sync ──────────────────────────────────────────────────────────────────────
+
+
+def _sync_device(
+    device_id: str, device_name: str | None, platform: str | None
+) -> dict[str, str]:
+    """The ``device`` sub-object shared by the /v1/sync push endpoints."""
+    device: dict[str, str] = {"device_id": device_id}
+    if device_name is not None:
+        device["device_name"] = device_name
+    if platform is not None:
+        device["platform"] = platform
+    return device
+
+
+def sync_memories_payload(
+    memories: list[SyncMemory],
+    *,
+    device_id: str,
+    device_name: str | None,
+    platform: str | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/sync/memories (snake_case wire, Nones omitted)."""
+    return {
+        "device": _sync_device(device_id, device_name, platform),
+        "memories": serialize_snake(memories),
+    }
+
+
+def synced_memories_params(
+    *,
+    device_id: str | None,
+    project: str | None,
+    search: str | None,
+    include_deleted: bool | None,
+    limit: int,
+    offset: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/sync/memories (booleans as ``true``/``false``)."""
+    params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+    if device_id is not None:
+        params["device_id"] = device_id
+    if project is not None:
+        params["project"] = project
+    if search is not None:
+        params["search"] = search
+    if include_deleted is not None:
+        params["include_deleted"] = "true" if include_deleted else "false"
+    return params
+
+
+def sync_graph_payload(
+    *,
+    device_id: str,
+    device_name: str | None,
+    platform: str | None,
+    entities: list[SyncGraphEntity] | None,
+    triples: list[SyncGraphTriple] | None,
+    memory_entities: list[SyncMemoryEntityLink] | None,
+    prune_memory_external_ids: list[str] | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/sync/graph — absent arrays are omitted (the API
+    defaults them to empty, but requires at least one non-empty)."""
+    payload: dict[str, Any] = {
+        "device": _sync_device(device_id, device_name, platform)
+    }
+    if entities is not None:
+        payload["entities"] = serialize_snake(entities)
+    if triples is not None:
+        payload["triples"] = serialize_snake(triples)
+    if memory_entities is not None:
+        payload["memory_entities"] = serialize_snake(memory_entities)
+    if prune_memory_external_ids is not None:
+        payload["prune_memory_external_ids"] = prune_memory_external_ids
+    return payload
