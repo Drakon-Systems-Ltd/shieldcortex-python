@@ -14,7 +14,10 @@ documented in the SDK lockstep contract, in lockstep with the TypeScript SDK.
 - **Incidents** — `replay_incidents()`
 - **Recall** — `explain_recall()`
 - **Sync** — `get_sync_health()`, `push_memories()`, `list_synced_memories()`,
-  `push_memory_graph()`
+  `push_memory_graph()`. Note: `list_synced_memories()` omits the
+  `include_deleted` param unless truthy — the server Boolean-coerces any
+  present value (even `"false"`) as enabling it. Every other boolean query
+  param was audited for the same coercion trap; none affected.
 - **Licence** — `get_license()`, `regenerate_license()`
 - **Audit** — `ingest_audit_events()`, `get_iron_dome_stats()`,
   `get_iron_dome_events()`, and the export-manifest surface
@@ -35,14 +38,6 @@ documented in the SDK lockstep contract, in lockstep with the TypeScript SDK.
   structurally could not be verified. An absent `sha256`/`signature` header
   is `None` (never `""`): the export is unverifiable. Migration:
   `client.export_audit_logs(...)` → `client.export_audit_logs(...).content`.
-
-### Fixed
-
-- `list_synced_memories(include_deleted=False)` no longer sends
-  `include_deleted=False` on the wire — the server Boolean-coerces any
-  present value (even `"false"`) as enabling it; the param is now omitted
-  unless truthy. Audited every other boolean query param for the same
-  coercion trap; none affected.
 
 ### Deprecated
 

@@ -22,8 +22,27 @@ print("\nAll audit entries:")
 for entry in client.iter_audit_logs(AuditQuery(level="BLOCK")):
     print(f"  #{entry.id}: {entry.firewall_result}")
 
-# Export as CSV
-csv_data = client.export_audit_logs(format="csv")
+# Export as CSV — returns the raw body plus X-ShieldCortex-Export-* integrity headers
+export = client.export_audit_logs(format="csv")
 with open("audit_export.csv", "w") as f:
-    f.write(csv_data)
+    f.write(export.content)
 print("\nExported to audit_export.csv")
+
+# Verify the export's integrity. sha256/signature/manifest_id are None when
+# the server did not send them — the export is unverifiable, never "".
+headers = export.headers
+if headers.sha256 is None or headers.signature is None:
+    print("Export is UNVERIFIABLE — integrity headers absent")
+else:
+    print(f"Entries: {headers.count}")
+    print(f"SHA-256: {headers.sha256}")
+    print(f"Signature ({headers.signature_algorithm}): {headers.signature}")
+    if headers.manifest_id is not None:
+        # Server-side check against the persisted, signed manifest
+        response = client.verify_audit_export(
+            headers.manifest_id, export_sha256=headers.sha256
+        )
+        result = response.verification
+        print(f"Manifest {headers.manifest_id}:")
+        print(f"  signature valid: {result.signature_valid}")
+        print(f"  sha256 matches:  {result.sha256_matches}")

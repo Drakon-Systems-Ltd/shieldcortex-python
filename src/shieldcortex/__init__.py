@@ -164,11 +164,11 @@ __all__ = [
     "AuditEntry",
     "AuditResponse",
     "AuditStats",
-    "AuditExportHeaders",
-    "AuditExportResult",
     "SourceCount",
     "TrendBucket",
     "TrendResponse",
+    "AuditExportHeaders",
+    "AuditExportResult",
     "Pagination",
     # Quarantine types
     "QuarantineQuery",
