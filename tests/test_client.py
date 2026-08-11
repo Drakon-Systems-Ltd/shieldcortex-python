@@ -493,3 +493,47 @@ def test_sends_auth_header(client: ShieldCortex) -> None:
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer sc_test_abc123"
     assert "shieldcortex-python" in request.headers["user-agent"]
+
+
+# ── Billing (deprecated) ──────────────────────────────────────────────────────
+
+
+@respx.mock
+def test_create_checkout_session_warns_deprecated(client: ShieldCortex) -> None:
+    respx.post(f"{BASE}/v1/billing/checkout").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        result = client.create_checkout_session()
+
+    assert result.url == "https://checkout.stripe.com/x"
+
+
+@respx.mock
+def test_create_portal_session_warns_deprecated(client: ShieldCortex) -> None:
+    respx.post(f"{BASE}/v1/billing/portal").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        result = client.create_portal_session()
+
+    assert result.url == "https://billing.stripe.com/x"
+
+
+@respx.mock
+async def test_async_billing_warns_deprecated(
+    async_client: AsyncShieldCortex,
+) -> None:
+    respx.post(f"{BASE}/v1/billing/checkout").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/x"})
+    )
+    respx.post(f"{BASE}/v1/billing/portal").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        checkout = await async_client.create_checkout_session()
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        portal = await async_client.create_portal_session()
+
+    assert checkout.url == "https://checkout.stripe.com/x"
+    assert portal.url == "https://billing.stripe.com/x"

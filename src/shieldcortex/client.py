@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from typing import Any, Literal, TypeVar
 
@@ -366,11 +367,31 @@ class ShieldCortex:
     # ── Billing ───────────────────────────────────────────────────────────────
 
     def create_checkout_session(self) -> CheckoutResponse:
-        """Create a Stripe checkout session for plan upgrade."""
+        """Create a Stripe checkout session for plan upgrade.
+
+        Deprecated: self-serve plans retired 2026-07 (Free + Enterprise
+        model); retained for grandfathered licence holders."""
+        warnings.warn(
+            "create_checkout_session is deprecated: self-serve plans were "
+            "retired 2026-07 (Free + Enterprise model); retained for "
+            "grandfathered licence holders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._post("/v1/billing/checkout", {}, CheckoutResponse)
 
     def create_portal_session(self) -> PortalResponse:
-        """Create a Stripe billing portal session."""
+        """Create a Stripe billing portal session.
+
+        Deprecated: self-serve plans retired 2026-07 (Free + Enterprise
+        model); retained for grandfathered licence holders."""
+        warnings.warn(
+            "create_portal_session is deprecated: self-serve plans were "
+            "retired 2026-07 (Free + Enterprise model); retained for "
+            "grandfathered licence holders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._post("/v1/billing/portal", {}, PortalResponse)
 
     # ── Devices ───────────────────────────────────────────────────────────────
