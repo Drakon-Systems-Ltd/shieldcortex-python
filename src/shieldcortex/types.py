@@ -933,6 +933,35 @@ class SyncGraphResponse:
     orphan_entities_pruned: int
 
 
+# -- License ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LicenseInfo:
+    """GET /v1/license.
+
+    NOTE: ``last_validated_at`` is MISSING entirely (not null) on the
+    no-licence branch (``tier="free"``, ``status="none"``), so it defaults
+    to None here.
+    """
+
+    tier: str
+    status: str
+    expires_at: Optional[str] = None
+    created_at: Optional[str] = None
+    last_validated_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RegenerateLicenseResponse:
+    """POST /v1/license/regenerate — the new key is only returned once."""
+
+    key: str
+    tier: str
+    expires_at: str
+    message: str
+
+
 # -- Recall ----------------------------------------------------------------
 
 

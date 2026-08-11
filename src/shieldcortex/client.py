@@ -58,6 +58,7 @@ from shieldcortex.types import (
     IronDomePoliciesResponse,
     IronDomePolicy,
     KeyListResponse,
+    LicenseInfo,
     MembersResponse,
     PatternSyncResponse,
     PatternTestResult,
@@ -67,6 +68,7 @@ from shieldcortex.types import (
     QuarantineQuery,
     QuarantineResponse,
     RecallExplainResponse,
+    RegenerateLicenseResponse,
     ReviewResponse,
     ScanConfig,
     ScanResult,
@@ -853,6 +855,22 @@ class ShieldCortex:
             prune_memory_external_ids=prune_memory_external_ids,
         )
         return self._post("/v1/sync/graph", payload, SyncGraphResponse)
+
+    # ── License ───────────────────────────────────────────────────────────────
+
+    def get_license(self) -> LicenseInfo:
+        """Get the team's licence status. With no licence on file the API
+        returns ``tier="free"``/``status="none"`` and omits
+        ``last_validated_at`` entirely (it is never null on that branch)."""
+        return self._get("/v1/license", {}, LicenseInfo)
+
+    def regenerate_license(self) -> RegenerateLicenseResponse:
+        """Revoke the existing licence key and issue a new one (admin scope,
+        paid plan). Expiry is 35 days out; the key is only returned once.
+        Free-plan teams get 402 Plan Required."""
+        return self._post(
+            "/v1/license/regenerate", {}, RegenerateLicenseResponse
+        )
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 

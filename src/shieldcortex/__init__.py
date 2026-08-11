@@ -51,6 +51,7 @@ from shieldcortex.types import (
     KeyInfo,
     KeyListItem,
     KeyListResponse,
+    LicenseInfo,
     MembersResponse,
     Pagination,
     PatternSyncItem,
@@ -66,6 +67,7 @@ from shieldcortex.types import (
     RecallMemory,
     RecallResult,
     RecallScoreBreakdown,
+    RegenerateLicenseResponse,
     ReviewResponse,
     ScanConfig,
     ScanResult,
@@ -234,4 +236,7 @@ __all__ = [
     "SyncGraphTriple",
     "SyncMemoryEntityLink",
     "SyncGraphResponse",
+    # License types
+    "LicenseInfo",
+    "RegenerateLicenseResponse",
 ]
