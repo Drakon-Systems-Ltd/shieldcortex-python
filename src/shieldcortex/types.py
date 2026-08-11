@@ -627,3 +627,76 @@ class VerificationStats:
 class DeleteVerificationResponse:
     deleted: bool
     id: int
+
+
+# -- Skills ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SkillFinding:
+    """A single finding within a skill scan.
+
+    NOTE: serialized on the wire with camelCase ``matchedText`` (a deliberate
+    API wart); the Python attribute stays snake_case.
+    """
+
+    pattern: str
+    severity: str
+    description: str
+    matched_text: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SkillScanFile:
+    """A scanned skill file to submit via POST /v1/skills/ingest."""
+
+    file_path: str
+    skill_name: str
+    format: str
+    risk_level: Literal["safe", "low", "medium", "high", "critical"]
+    safe: bool
+    summary: Optional[str] = None
+    findings: Optional[list[SkillFinding]] = None
+    scan_duration_ms: Optional[int] = None
+    trusted: Optional[bool] = None
+
+
+@dataclass(frozen=True)
+class SkillIngestResponse:
+    upserted: int
+    total: int
+
+
+@dataclass(frozen=True)
+class SyncedSkillScan:
+    """A synced skill scan row from GET /v1/skills."""
+
+    id: int
+    file_path: str
+    skill_name: str
+    format: str
+    risk_level: str
+    safe: bool
+    trusted: bool
+    summary: Optional[str] = None
+    findings: Optional[list[SkillFinding]] = None
+    scan_duration_ms: Optional[int] = None
+    scanned_at: Optional[str] = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SkillScanListResponse:
+    """GET /v1/skills — hard cap 200 rows, newest first, no pagination."""
+
+    files: list[SyncedSkillScan]
+    total: int
+
+
+# -- Threats ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ThreatReportResponse:
+    ingested: int

@@ -22,6 +22,7 @@ from shieldcortex._http import (
     raise_for_status,
     serialize,
     serialize_query,
+    serialize_snake,
 )
 from shieldcortex.errors import ShieldCortexError
 from shieldcortex.types import (
@@ -57,9 +58,13 @@ from shieldcortex.types import (
     ScanConfig,
     ScanResult,
     ScanSource,
+    SkillIngestResponse,
+    SkillScanFile,
+    SkillScanListResponse,
     SkillScanResult,
     TeamInfo,
     TestWebhookResponse,
+    ThreatReportResponse,
     TrendResponse,
     UsageResponse,
     VerificationDetail,
@@ -669,6 +674,54 @@ class AsyncShieldCortex:
         """Delete a verification record (admin scope)."""
         response = await self._raw_delete(f"/v1/verify/{id}")
         return deserialize(response.json(), DeleteVerificationResponse)
+
+    # ── Skills ────────────────────────────────────────────────────────────────
+
+    async def ingest_skill_scans(
+        self,
+        files: list[SkillScanFile],
+        *,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        platform: str | None = None,
+        scanned_at: str | None = None,
+    ) -> SkillIngestResponse:
+        """Bulk ingest skill scan results (upsert keyed on device + file path)."""
+        payload: dict[str, Any] = {"files": serialize_snake(files)}
+        if device_id is not None:
+            payload["device_id"] = device_id
+        if device_name is not None:
+            payload["device_name"] = device_name
+        if platform is not None:
+            payload["platform"] = platform
+        if scanned_at is not None:
+            payload["scanned_at"] = scanned_at
+        return await self._post("/v1/skills/ingest", payload, SkillIngestResponse)
+
+    async def list_skill_scans(
+        self, *, device_id: str | None = None
+    ) -> SkillScanListResponse:
+        """List synced skill scans (newest first, hard cap 200 — no pagination)."""
+        params: dict[str, str] = {}
+        if device_id is not None:
+            params["device_id"] = device_id
+        return await self._get("/v1/skills", params, SkillScanListResponse)
+
+    # ── Threats ───────────────────────────────────────────────────────────────
+
+    async def report_threat(
+        self, events: dict[str, Any] | list[dict[str, Any]]
+    ) -> ThreatReportResponse:
+        """Report realtime threat events (OpenClaw compat shim, max 100).
+
+        Prefer POST /v1/audit/ingest for canonical audit entries; this
+        endpoint best-effort maps loose event payloads.
+        """
+        if isinstance(events, dict):
+            events = [events]
+        return await self._post(
+            "/v1/threats", {"events": events}, ThreatReportResponse
+        )
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 
