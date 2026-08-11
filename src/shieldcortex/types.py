@@ -510,3 +510,120 @@ class IronDomePoliciesResponse:
 class PolicySyncResponse:
     policy: Optional[dict[str, Any]] = None
     updated_at: Optional[str] = None
+
+
+# -- Verification ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DetectedThreat:
+    type: str
+    description: str
+    severity: str
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    """Result of POST /v1/verify (synchronous mode).
+
+    The API omits undefined result keys entirely (never null), so every
+    optional field defaults to None.
+    """
+
+    id: int
+    status: str
+    cached: bool = False
+    verdict: Optional[Literal["SAFE", "SUSPICIOUS", "THREAT"]] = None
+    confidence: Optional[float] = None
+    action: Optional[Literal["ALERT", "NONE"]] = None
+    duration_ms: Optional[float] = None
+    threats_detected: Optional[list[DetectedThreat]] = None
+
+
+@dataclass(frozen=True)
+class VerificationListItem:
+    """A row from GET /v1/verify.
+
+    NOTE: the list exposes ``duration_ms`` where the detail endpoint exposes
+    the same column as ``total_duration_ms``.
+    """
+
+    id: int
+    source_type: str
+    source_identifier: str
+    pipeline_result: str
+    anomaly_score: float
+    status: str
+    created_at: str
+    title: Optional[str] = None
+    trust_score: Optional[float] = None
+    verdict: Optional[str] = None
+    confidence: Optional[float] = None
+    action: Optional[str] = None
+    threats_detected: Optional[list[DetectedThreat]] = None
+    duration_ms: Optional[float] = None
+    cost_usd: Optional[float] = None
+    completed_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class VerificationListResponse:
+    verifications: list[VerificationListItem]
+    total: int
+    pagination: Pagination
+
+
+@dataclass(frozen=True)
+class VerificationDetail:
+    """Full verification record from GET /v1/verify/:id."""
+
+    id: int
+    source_type: str
+    source_identifier: str
+    pipeline_result: str
+    anomaly_score: float
+    status: str
+    created_at: str
+    title: Optional[str] = None
+    trust_score: Optional[float] = None
+    threat_indicators: Optional[list[str]] = None
+    verdict: Optional[str] = None
+    confidence: Optional[float] = None
+    reasoning: Optional[str] = None
+    threats_detected: Optional[list[DetectedThreat]] = None
+    model_used: Optional[str] = None
+    action: Optional[str] = None
+    llm_duration_ms: Optional[int] = None
+    total_duration_ms: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+    completed_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class VerificationDayStats:
+    total: int
+    safe: int
+    suspicious: int
+    threat: int
+    error: int
+    cost_usd: float
+
+
+@dataclass(frozen=True)
+class VerificationQuota:
+    used: int
+    limit: int
+
+
+@dataclass(frozen=True)
+class VerificationStats:
+    today: VerificationDayStats
+    quota: VerificationQuota
+
+
+@dataclass(frozen=True)
+class DeleteVerificationResponse:
+    deleted: bool
+    id: int

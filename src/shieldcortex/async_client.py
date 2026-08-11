@@ -35,6 +35,7 @@ from shieldcortex.types import (
     CheckoutResponse,
     CreateKeyResponse,
     CreateWebhookResponse,
+    DeleteVerificationResponse,
     Device,
     FirewallRule,
     InjectionPattern,
@@ -61,6 +62,10 @@ from shieldcortex.types import (
     TestWebhookResponse,
     TrendResponse,
     UsageResponse,
+    VerificationDetail,
+    VerificationListResponse,
+    VerificationResult,
+    VerificationStats,
     Webhook,
     WebhookDelivery,
 )
@@ -584,6 +589,86 @@ class AsyncShieldCortex:
     async def delete_iron_dome_policy(self, id: int) -> None:
         """Delete an Iron Dome policy."""
         await self._raw_delete(f"/v1/iron-dome/policies/{id}")
+
+    # ── Verification (Enterprise) ─────────────────────────────────────────────
+
+    async def submit_verification(
+        self,
+        content: str,
+        *,
+        source_type: str,
+        source_identifier: str,
+        anomaly_score: float,
+        pipeline_result: Literal["ALLOW", "BLOCK", "QUARANTINE"],
+        title: str | None = None,
+        trust_score: float | None = None,
+        threat_indicators: list[str] | None = None,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        mode: Literal["sync", "async"] = "sync",
+    ) -> VerificationResult:
+        """Submit content for LLM verification. Synchronous — the verdict
+        is returned inline (200, not 201)."""
+        payload: dict[str, Any] = {
+            "content": content,
+            "source_type": source_type,
+            "source_identifier": source_identifier,
+            "anomaly_score": anomaly_score,
+            "pipeline_result": pipeline_result,
+            "mode": mode,
+        }
+        if title is not None:
+            payload["title"] = title
+        if trust_score is not None:
+            payload["trust_score"] = trust_score
+        if threat_indicators is not None:
+            payload["threat_indicators"] = threat_indicators
+        if device_id is not None:
+            payload["device_id"] = device_id
+        if device_name is not None:
+            payload["device_name"] = device_name
+        return await self._post("/v1/verify", payload, VerificationResult)
+
+    async def list_verifications(
+        self,
+        *,
+        from_time: str | None = None,
+        to: str | None = None,
+        status: Literal["pending", "completed", "failed", "cached"] | None = None,
+        verdict: Literal["SAFE", "SUSPICIOUS", "THREAT"] | None = None,
+        source: str | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> VerificationListResponse:
+        """List verification requests with optional filters and pagination."""
+        params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+        if from_time is not None:
+            params["from"] = from_time
+        if to is not None:
+            params["to"] = to
+        if status is not None:
+            params["status"] = status
+        if verdict is not None:
+            params["verdict"] = verdict
+        if source is not None:
+            params["source"] = source
+        if search is not None:
+            params["search"] = search
+        return await self._get("/v1/verify", params, VerificationListResponse)
+
+    async def get_verification_stats(self) -> VerificationStats:
+        """Get today's verification counts and daily quota usage."""
+        return await self._get("/v1/verify/stats", {}, VerificationStats)
+
+    async def get_verification(self, id: int) -> VerificationDetail:
+        """Get a single verification by ID (polling target for pending)."""
+        return await self._get(f"/v1/verify/{id}", {}, VerificationDetail)
+
+    async def delete_verification(self, id: int) -> DeleteVerificationResponse:
+        """Delete a verification record (admin scope)."""
+        response = await self._raw_delete(f"/v1/verify/{id}")
+        return deserialize(response.json(), DeleteVerificationResponse)
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 
