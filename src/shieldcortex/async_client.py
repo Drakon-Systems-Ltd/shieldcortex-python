@@ -39,6 +39,7 @@ from shieldcortex.types import (
     DeleteVerificationResponse,
     Device,
     FirewallRule,
+    IncidentReplayResponse,
     InjectionPattern,
     InjectionPatternsResponse,
     Invite,
@@ -54,6 +55,7 @@ from shieldcortex.types import (
     QuarantineItem,
     QuarantineQuery,
     QuarantineResponse,
+    RecallExplainResponse,
     ReviewResponse,
     ScanConfig,
     ScanResult,
@@ -722,6 +724,58 @@ class AsyncShieldCortex:
         return await self._post(
             "/v1/threats", {"events": events}, ThreatReportResponse
         )
+
+    # ── Incidents ─────────────────────────────────────────────────────────────
+
+    async def replay_incidents(
+        self,
+        *,
+        from_: str | None = None,
+        to: str | None = None,
+        device_id: str | None = None,
+        source_identifier: str | None = None,
+        project: str | None = None,
+        search: str | None = None,
+        limit: int = 100,
+    ) -> IncidentReplayResponse:
+        """Replay a merged incident timeline across the audit, verification,
+        sync and memory streams. ``from_``/``to`` map to the API's ``from``/
+        ``to`` ISO datetime params."""
+        params: dict[str, str] = {"limit": str(limit)}
+        if from_ is not None:
+            params["from"] = from_
+        if to is not None:
+            params["to"] = to
+        if device_id is not None:
+            params["device_id"] = device_id
+        if source_identifier is not None:
+            params["source_identifier"] = source_identifier
+        if project is not None:
+            params["project"] = project
+        if search is not None:
+            params["search"] = search
+        return await self._get(
+            "/v1/incidents/replay", params, IncidentReplayResponse
+        )
+
+    # ── Recall ────────────────────────────────────────────────────────────────
+
+    async def explain_recall(
+        self,
+        query: str,
+        *,
+        project: str | None = None,
+        device_id: str | None = None,
+        limit: int = 8,
+    ) -> RecallExplainResponse:
+        """Explain how a recall query ranks synced memories, with per-result
+        score breakdowns."""
+        params: dict[str, str] = {"query": query, "limit": str(limit)}
+        if project is not None:
+            params["project"] = project
+        if device_id is not None:
+            params["device_id"] = device_id
+        return await self._get("/v1/recall/explain", params, RecallExplainResponse)
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 

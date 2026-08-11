@@ -38,6 +38,10 @@ from shieldcortex.types import (
     FirewallResult,
     FirewallRule,
     FragmentationResult,
+    IncidentCoverage,
+    IncidentEvent,
+    IncidentReplayResponse,
+    IncidentStreamSummary,
     InjectionPattern,
     InjectionPatternsResponse,
     Invite,
@@ -57,6 +61,11 @@ from shieldcortex.types import (
     QuarantineItem,
     QuarantineQuery,
     QuarantineResponse,
+    RecallExplainResponse,
+    RecallLinkedEntity,
+    RecallMemory,
+    RecallResult,
+    RecallScoreBreakdown,
     ReviewResponse,
     ScanConfig,
     ScanResult,
@@ -187,4 +196,15 @@ __all__ = [
     "SkillScanListResponse",
     # Threat types
     "ThreatReportResponse",
+    # Incident types
+    "IncidentEvent",
+    "IncidentStreamSummary",
+    "IncidentCoverage",
+    "IncidentReplayResponse",
+    # Recall types
+    "RecallMemory",
+    "RecallLinkedEntity",
+    "RecallScoreBreakdown",
+    "RecallResult",
+    "RecallExplainResponse",
 ]

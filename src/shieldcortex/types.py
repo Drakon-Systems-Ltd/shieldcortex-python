@@ -700,3 +700,102 @@ class SkillScanListResponse:
 @dataclass(frozen=True)
 class ThreatReportResponse:
     ingested: int
+
+
+# -- Incidents -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IncidentEvent:
+    id: str
+    timestamp: str
+    stream: Literal["audit", "verification", "sync", "memory"]
+    event_type: str
+    severity: Literal["info", "warning", "critical"]
+    summary: str
+    details: Optional[str] = None
+    device_uuid: Optional[str] = None
+    device_name: Optional[str] = None
+    source_identifier: Optional[str] = None
+    project: Optional[str] = None
+    memory_external_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class IncidentStreamSummary:
+    audit: int
+    verification: int
+    sync: int
+    memory: int
+
+
+@dataclass(frozen=True)
+class IncidentCoverage:
+    sources: list[str]
+    note: str
+
+
+@dataclass(frozen=True)
+class IncidentReplayResponse:
+    events: list[IncidentEvent]
+    total: int
+    summary: IncidentStreamSummary
+    coverage: IncidentCoverage
+
+
+# -- Recall ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RecallMemory:
+    external_id: str
+    title: str
+    content: str
+    category: str
+    type: str
+    tags: list[str]
+    salience: float
+    scope: str
+    updated_at: str
+    last_synced_at: str
+    device_uuid: str
+    project: Optional[str] = None
+    trust_score: Optional[float] = None
+    device_name: Optional[str] = None
+    device_platform: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RecallLinkedEntity:
+    name: str
+    type: str
+    role: str
+
+
+@dataclass(frozen=True)
+class RecallScoreBreakdown:
+    lexical: float
+    exact_phrase: float
+    salience: float
+    recency: float
+    trust: float
+    project: float
+
+
+@dataclass(frozen=True)
+class RecallResult:
+    memory: RecallMemory
+    score: float
+    matched_terms: list[str]
+    reasons: list[str]
+    breakdown: RecallScoreBreakdown
+    linked_entities: list[RecallLinkedEntity] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RecallExplainResponse:
+    query: str
+    total_candidates: int
+    results: list[RecallResult]
+    project: Optional[str] = None
