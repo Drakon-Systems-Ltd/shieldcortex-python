@@ -22,7 +22,15 @@ from shieldcortex._http import (
     raise_for_status,
     serialize,
     serialize_query,
-    serialize_snake,
+)
+from shieldcortex._payloads import (
+    incident_replay_params,
+    recall_explain_params,
+    skill_ingest_payload,
+    skill_list_params,
+    threat_report_payload,
+    verification_list_params,
+    verify_submit_payload,
 )
 from shieldcortex.errors import ShieldCortexError
 from shieldcortex.types import (
@@ -614,26 +622,23 @@ class AsyncShieldCortex:
         device_name: str | None = None,
         mode: Literal["sync", "async"] = "sync",
     ) -> VerificationResult:
-        """Submit content for LLM verification. Synchronous — the verdict
-        is returned inline (200, not 201)."""
-        payload: dict[str, Any] = {
-            "content": content,
-            "source_type": source_type,
-            "source_identifier": source_identifier,
-            "anomaly_score": anomaly_score,
-            "pipeline_result": pipeline_result,
-            "mode": mode,
-        }
-        if title is not None:
-            payload["title"] = title
-        if trust_score is not None:
-            payload["trust_score"] = trust_score
-        if threat_indicators is not None:
-            payload["threat_indicators"] = threat_indicators
-        if device_id is not None:
-            payload["device_id"] = device_id
-        if device_name is not None:
-            payload["device_name"] = device_name
+        """Submit content for LLM verification. With the default
+        ``mode="sync"`` the verdict is returned inline (200, not 201).
+        ``mode="async"`` is accepted by the SDK but the API currently
+        returns 501 Not Implemented."""
+        payload = verify_submit_payload(
+            content,
+            source_type=source_type,
+            source_identifier=source_identifier,
+            anomaly_score=anomaly_score,
+            pipeline_result=pipeline_result,
+            title=title,
+            trust_score=trust_score,
+            threat_indicators=threat_indicators,
+            device_id=device_id,
+            device_name=device_name,
+            mode=mode,
+        )
         return await self._post("/v1/verify", payload, VerificationResult)
 
     async def list_verifications(
@@ -649,19 +654,16 @@ class AsyncShieldCortex:
         offset: int = 0,
     ) -> VerificationListResponse:
         """List verification requests with optional filters and pagination."""
-        params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
-        if from_time is not None:
-            params["from"] = from_time
-        if to is not None:
-            params["to"] = to
-        if status is not None:
-            params["status"] = status
-        if verdict is not None:
-            params["verdict"] = verdict
-        if source is not None:
-            params["source"] = source
-        if search is not None:
-            params["search"] = search
+        params = verification_list_params(
+            from_time=from_time,
+            to=to,
+            status=status,
+            verdict=verdict,
+            source=source,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
         return await self._get("/v1/verify", params, VerificationListResponse)
 
     async def get_verification_stats(self) -> VerificationStats:
@@ -689,24 +691,20 @@ class AsyncShieldCortex:
         scanned_at: str | None = None,
     ) -> SkillIngestResponse:
         """Bulk ingest skill scan results (upsert keyed on device + file path)."""
-        payload: dict[str, Any] = {"files": serialize_snake(files)}
-        if device_id is not None:
-            payload["device_id"] = device_id
-        if device_name is not None:
-            payload["device_name"] = device_name
-        if platform is not None:
-            payload["platform"] = platform
-        if scanned_at is not None:
-            payload["scanned_at"] = scanned_at
+        payload = skill_ingest_payload(
+            files,
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+            scanned_at=scanned_at,
+        )
         return await self._post("/v1/skills/ingest", payload, SkillIngestResponse)
 
     async def list_skill_scans(
         self, *, device_id: str | None = None
     ) -> SkillScanListResponse:
         """List synced skill scans (newest first, hard cap 200 — no pagination)."""
-        params: dict[str, str] = {}
-        if device_id is not None:
-            params["device_id"] = device_id
+        params = skill_list_params(device_id=device_id)
         return await self._get("/v1/skills", params, SkillScanListResponse)
 
     # ── Threats ───────────────────────────────────────────────────────────────
@@ -719,11 +717,8 @@ class AsyncShieldCortex:
         Prefer POST /v1/audit/ingest for canonical audit entries; this
         endpoint best-effort maps loose event payloads.
         """
-        if isinstance(events, dict):
-            events = [events]
-        return await self._post(
-            "/v1/threats", {"events": events}, ThreatReportResponse
-        )
+        payload = threat_report_payload(events)
+        return await self._post("/v1/threats", payload, ThreatReportResponse)
 
     # ── Incidents ─────────────────────────────────────────────────────────────
 
@@ -741,19 +736,15 @@ class AsyncShieldCortex:
         """Replay a merged incident timeline across the audit, verification,
         sync and memory streams. ``from_time``/``to`` map to the API's
         ``from``/``to`` ISO datetime params."""
-        params: dict[str, str] = {"limit": str(limit)}
-        if from_time is not None:
-            params["from"] = from_time
-        if to is not None:
-            params["to"] = to
-        if device_id is not None:
-            params["device_id"] = device_id
-        if source_identifier is not None:
-            params["source_identifier"] = source_identifier
-        if project is not None:
-            params["project"] = project
-        if search is not None:
-            params["search"] = search
+        params = incident_replay_params(
+            from_time=from_time,
+            to=to,
+            device_id=device_id,
+            source_identifier=source_identifier,
+            project=project,
+            search=search,
+            limit=limit,
+        )
         return await self._get(
             "/v1/incidents/replay", params, IncidentReplayResponse
         )
@@ -770,11 +761,9 @@ class AsyncShieldCortex:
     ) -> RecallExplainResponse:
         """Explain how a recall query ranks synced memories, with per-result
         score breakdowns."""
-        params: dict[str, str] = {"query": query, "limit": str(limit)}
-        if project is not None:
-            params["project"] = project
-        if device_id is not None:
-            params["device_id"] = device_id
+        params = recall_explain_params(
+            query, project=project, device_id=device_id, limit=limit
+        )
         return await self._get("/v1/recall/explain", params, RecallExplainResponse)
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
