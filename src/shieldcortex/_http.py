@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from collections.abc import Callable
 from typing import Any, TypeVar, get_type_hints
 
 import httpx
@@ -54,6 +55,36 @@ _QUERY_ALIASES: dict[str, str] = {
 # ── Serialisation ─────────────────────────────────────────────────────────────
 
 
+def _serialize(obj: Any, key_of: Callable[[dataclasses.Field[Any]], str]) -> Any:
+    """Shared serialisation traversal.
+
+    - Wire keys are derived per field by ``key_of``
+    - None values are omitted
+    - Nested dataclasses, lists and dicts are recursed
+    """
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        result: dict[str, Any] = {}
+        for f in dataclasses.fields(obj):
+            value = getattr(obj, f.name)
+            if value is None:
+                continue
+            result[key_of(f)] = _serialize(value, key_of)
+        return result
+    if isinstance(obj, list):
+        return [_serialize(item, key_of) for item in obj]
+    if isinstance(obj, dict):
+        return {k: _serialize(v, key_of) for k, v in obj.items()}
+    return obj
+
+
+def _camel_key(f: dataclasses.Field[Any]) -> str:
+    return _to_camel(f.name)
+
+
+def _snake_wire_key(f: dataclasses.Field[Any]) -> str:
+    return str(f.metadata.get("wire", f.name))
+
+
 def serialize(obj: Any) -> Any:
     """Convert a dataclass (or primitive) to an API-compatible dict.
 
@@ -61,50 +92,18 @@ def serialize(obj: Any) -> Any:
     - None values are omitted
     - Nested dataclasses are recursed
     """
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        result: dict[str, Any] = {}
-        for f in dataclasses.fields(obj):
-            value = getattr(obj, f.name)
-            if value is None:
-                continue
-            api_key = _to_camel(f.name)
-            result[api_key] = serialize(value)
-        return result
-    if isinstance(obj, list):
-        return [serialize(item) for item in obj]
-    if isinstance(obj, dict):
-        return {k: serialize(v) for k, v in obj.items()}
-    return obj
-
-
-# Python field name → wire key, for snake_case wire payloads where the API
-# leaks camelCase on specific nested keys (e.g. skills findings[].matchedText).
-_SNAKE_WIRE_ALIASES: dict[str, str] = {
-    "matched_text": "matchedText",
-}
+    return _serialize(obj, _camel_key)
 
 
 def serialize_snake(obj: Any) -> Any:
     """Convert a dataclass (or primitive) to a snake_case wire dict.
 
     Unlike :func:`serialize`, field names are kept snake_case (the house wire
-    convention), with known camelCase warts applied via _SNAKE_WIRE_ALIASES.
+    convention). Known camelCase warts (e.g. skills findings[].matchedText)
+    are declared per field via ``metadata={"wire": ...}`` in types.py.
     None values are omitted; nested dataclasses are recursed.
     """
-    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        result: dict[str, Any] = {}
-        for f in dataclasses.fields(obj):
-            value = getattr(obj, f.name)
-            if value is None:
-                continue
-            wire_key = _SNAKE_WIRE_ALIASES.get(f.name, f.name)
-            result[wire_key] = serialize_snake(value)
-        return result
-    if isinstance(obj, list):
-        return [serialize_snake(item) for item in obj]
-    if isinstance(obj, dict):
-        return {k: serialize_snake(v) for k, v in obj.items()}
-    return obj
+    return _serialize(obj, _snake_wire_key)
 
 
 def serialize_query(obj: Any) -> dict[str, str]:

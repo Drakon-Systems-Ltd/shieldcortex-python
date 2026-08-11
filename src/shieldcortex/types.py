@@ -637,13 +637,14 @@ class SkillFinding:
     """A single finding within a skill scan.
 
     NOTE: serialized on the wire with camelCase ``matchedText`` (a deliberate
-    API wart); the Python attribute stays snake_case.
+    API wart, declared via field metadata); the Python attribute stays
+    snake_case.
     """
 
     pattern: str
     severity: str
     description: str
-    matched_text: Optional[str] = None
+    matched_text: Optional[str] = field(default=None, metadata={"wire": "matchedText"})
 
 
 @dataclass(frozen=True)
