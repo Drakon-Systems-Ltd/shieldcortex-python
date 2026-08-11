@@ -732,7 +732,7 @@ class ShieldCortex:
     def replay_incidents(
         self,
         *,
-        from_: str | None = None,
+        from_time: str | None = None,
         to: str | None = None,
         device_id: str | None = None,
         source_identifier: str | None = None,
@@ -741,11 +741,11 @@ class ShieldCortex:
         limit: int = 100,
     ) -> IncidentReplayResponse:
         """Replay a merged incident timeline across the audit, verification,
-        sync and memory streams. ``from_``/``to`` map to the API's ``from``/
-        ``to`` ISO datetime params."""
+        sync and memory streams. ``from_time``/``to`` map to the API's
+        ``from``/``to`` ISO datetime params."""
         params: dict[str, str] = {"limit": str(limit)}
-        if from_ is not None:
-            params["from"] = from_
+        if from_time is not None:
+            params["from"] = from_time
         if to is not None:
             params["to"] = to
         if device_id is not None:

@@ -119,7 +119,7 @@ def test_replay_incidents(client: ShieldCortex) -> None:
         return_value=httpx.Response(200, json=INCIDENT_REPLAY_RESPONSE)
     )
     result = client.replay_incidents(
-        from_="2026-08-10T00:00:00.000Z",
+        from_time="2026-08-10T00:00:00.000Z",
         to="2026-08-11T00:00:00.000Z",
         device_id="9a3f2c14-0000-4000-8000-000000000001",
         source_identifier="crewai",
