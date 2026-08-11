@@ -218,7 +218,13 @@ def synced_memories_params(
     limit: int,
     offset: int,
 ) -> dict[str, str]:
-    """Query params for GET /v1/sync/memories (booleans as ``true``/``false``)."""
+    """Query params for GET /v1/sync/memories.
+
+    ``include_deleted`` is only emitted when truthy: the server parses it
+    with zod ``z.coerce.boolean()`` (``Boolean(value)``), so ANY present
+    string — including ``"false"`` — would enable it. False and None both
+    omit the param entirely.
+    """
     params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
     if device_id is not None:
         params["device_id"] = device_id
@@ -226,8 +232,8 @@ def synced_memories_params(
         params["project"] = project
     if search is not None:
         params["search"] = search
-    if include_deleted is not None:
-        params["include_deleted"] = "true" if include_deleted else "false"
+    if include_deleted:
+        params["include_deleted"] = "true"
     return params
 
 

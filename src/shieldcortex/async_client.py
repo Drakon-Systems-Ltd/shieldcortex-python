@@ -832,7 +832,9 @@ class AsyncShieldCortex:
     ) -> SyncedMemoriesResponse:
         """List synced memories (audit or admin scope). An unknown
         ``device_id`` returns an empty 200 with NO ``summary`` key, so
-        ``summary`` is ``None`` on that branch."""
+        ``summary`` is ``None`` on that branch. ``include_deleted=False``
+        and ``None`` both OMIT the param — the server Boolean-coerces any
+        present value (even ``"false"``) as enabling it."""
         params = synced_memories_params(
             device_id=device_id,
             project=project,

@@ -393,6 +393,23 @@ def test_list_synced_memories(client: ShieldCortex) -> None:
 
 
 @respx.mock
+def test_list_synced_memories_false_omits_include_deleted(
+    client: ShieldCortex,
+) -> None:
+    # The server parses include_deleted with zod z.coerce.boolean()
+    # (Boolean(value)) — the string "false" is truthy, so sending it would
+    # silently ENABLE deleted-memory inclusion. False must omit the param.
+    route = respx.get(f"{BASE}/v1/sync/memories").mock(
+        return_value=httpx.Response(200, json=SYNC_MEMORIES_UNKNOWN_DEVICE_RESPONSE)
+    )
+    client.list_synced_memories(include_deleted=False)
+
+    params = dict(route.calls.last.request.url.params)
+    assert "include_deleted" not in params
+    assert params == {"limit": "50", "offset": "0"}
+
+
+@respx.mock
 def test_list_synced_memories_unknown_device_omits_summary(
     client: ShieldCortex,
 ) -> None:
