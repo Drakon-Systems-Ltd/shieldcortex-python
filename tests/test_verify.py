@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from shieldcortex import AsyncShieldCortex, ShieldCortex
-from shieldcortex.errors import RateLimitError
+from shieldcortex.errors import RateLimitError, ShieldCortexError
 
 BASE = "https://api.shieldcortex.ai"
 
@@ -230,6 +230,38 @@ def test_submit_verification_daily_quota_maps_to_rate_limit_error(
     assert body["error"] == "Quota Exceeded"
     assert body["usage"]["used"] == 50
     assert body["usage"]["limit"] == 50
+
+
+@respx.mock
+def test_submit_verification_async_mode_sends_mode_and_501_raises(
+    client: ShieldCortex,
+) -> None:
+    # The API returns 501 Not Implemented for mode="async" today; the SDK
+    # sends the mode through and surfaces the generic error class
+    # (raise_for_status has no dedicated 501 mapping).
+    route = respx.post(f"{BASE}/v1/verify").mock(
+        return_value=httpx.Response(
+            501,
+            json={
+                "error": "Not Implemented",
+                "message": "Async verification is not available yet",
+            },
+        )
+    )
+    with pytest.raises(ShieldCortexError) as exc_info:
+        client.submit_verification(
+            "test",
+            source_type="agent",
+            source_identifier="a",
+            anomaly_score=0.5,
+            pipeline_result="ALLOW",
+            mode="async",
+        )
+
+    payload = json.loads(route.calls.last.request.read())
+    assert payload["mode"] == "async"
+    assert exc_info.value.status_code == 501
+    assert "Not Implemented" in exc_info.value.body
 
 
 @respx.mock
