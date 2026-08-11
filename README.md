@@ -127,8 +127,10 @@ logs = client.get_audit_logs(AuditQuery(level="BLOCK", limit=10))
 for entry in client.iter_audit_logs():
     print(entry.id, entry.firewall_result)
 
-# Export as CSV
-csv = client.export_audit_logs(format="csv")
+# Export as CSV — returns the raw body plus integrity headers
+export = client.export_audit_logs(format="csv")
+print(export.content)
+print(export.headers.sha256)  # None ⇒ export unverifiable
 ```
 
 ## Error Handling
@@ -146,24 +148,60 @@ except ValidationError:
     print("Invalid request")
 ```
 
-## Full API Coverage
+## API Coverage
 
-The SDK covers all ShieldCortex API endpoints:
+The SDK covers the full customer surface documented in the SDK lockstep contract:
 
 | Category | Methods |
 |----------|---------|
 | **Scanning** | `scan()`, `scan_batch()`, `scan_skill()` |
-| **Audit** | `get_audit_logs()`, `get_audit_entry()`, `get_audit_stats()`, `get_audit_trends()`, `export_audit_logs()`, `iter_audit_logs()` |
+| **Audit** | `get_audit_logs()`, `get_audit_entry()`, `get_audit_stats()`, `get_audit_trends()`, `export_audit_logs()`, `iter_audit_logs()`, `ingest_audit_events()`, `get_iron_dome_stats()`, `get_iron_dome_events()` |
+| **Audit Export Manifests** | `list_audit_exports()`, `get_audit_export_manifest()`, `verify_audit_export()`, `list_audit_export_verifications()` |
 | **Quarantine** | `get_quarantine()`, `get_quarantine_item()`, `review_quarantine_item()` |
 | **API Keys** | `create_api_key()`, `list_api_keys()`, `revoke_api_key()` |
 | **Teams** | `get_team()`, `update_team()`, `get_team_members()`, `get_usage()` |
 | **Invites** | `create_invite()`, `list_invites()`, `delete_invite()`, `resend_invite()` |
-| **Billing** | `create_checkout_session()`, `create_portal_session()` |
+| **Billing** (deprecated) | `create_checkout_session()`, `create_portal_session()` — self-serve plans retired 2026-07; retained for grandfathered licence holders |
 | **Devices** | `get_devices()`, `register_device()`, `update_device()`, `device_heartbeat()` |
 | **Alerts** | `get_alerts()`, `create_alert()`, `update_alert()`, `delete_alert()` |
 | **Webhooks** | `get_webhooks()`, `create_webhook()`, `update_webhook()`, `delete_webhook()`, `test_webhook()`, `get_webhook_deliveries()` |
 | **Firewall Rules** | `get_firewall_rules()`, `get_active_firewall_rules()`, `create_firewall_rule()`, `update_firewall_rule()`, `delete_firewall_rule()` |
 | **Iron Dome** | `get_injection_patterns()`, `get_injection_patterns_sync()`, `create_injection_pattern()`, `update_injection_pattern()`, `test_injection_pattern()`, `delete_injection_pattern()`, `get_iron_dome_policies()`, `get_iron_dome_policy_sync()`, `create_iron_dome_policy()`, `update_iron_dome_policy()`, `set_default_iron_dome_policy()`, `delete_iron_dome_policy()` |
+| **Verification** | `submit_verification()`, `list_verifications()`, `get_verification()`, `get_verification_stats()`, `delete_verification()` |
+| **Skills** | `ingest_skill_scans()`, `list_skill_scans()` |
+| **Threats** | `report_threat()` |
+| **Incidents** | `replay_incidents()` |
+| **Recall** | `explain_recall()` |
+| **Sync** | `get_sync_health()`, `push_memories()`, `list_synced_memories()`, `push_memory_graph()` |
+| **Licence** | `get_license()`, `regenerate_license()` |
+
+### Deferred endpoints
+
+The audit **verification-export download chain** (`GET .../verifications/export`,
+`GET .../verification-exports`, `GET .../verification-exports/{id}` and its
+`/download`) is deliberately deferred — it serves CLI tooling rather than SDK
+consumers. See `tests/endpoint_manifest.py` for the canonical list.
+
+### Out of scope
+
+- `/v1/platform/*` — platform-owner operations
+- `/v1/auth/*` — magic-link login flows (browser/dashboard, not API-key auth)
+- `/v1/customizer/*` — retired 2026-07
+
+Additional dashboard/session-scoped `/v1` routes exist server-side; they sit
+outside the SDK's API-key surface.
+
+### Cross-SDK policy notes
+
+The Python and TypeScript SDKs cover the same endpoint manifest, with two
+deliberate differences:
+
+1. **Deletes** — the TypeScript SDK returns `void` from every delete method;
+   the Python SDK returns the typed response body where the server sends one
+   (per-language internal consistency).
+2. **Audit export** — both SDKs return the raw file content together with the
+   parsed `X-ShieldCortex-Export-*` integrity headers. An absent `sha256` or
+   `signature` header means the export is unverifiable.
 
 ## Documentation
 

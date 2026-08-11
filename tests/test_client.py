@@ -203,15 +203,78 @@ def test_get_audit_trends(client: ShieldCortex) -> None:
     assert result.time_range == "24h"
 
 
+EXPORT_HEADERS = {
+    "X-ShieldCortex-Export-SHA256": "a" * 64,
+    "X-ShieldCortex-Export-Count": "2",
+    "X-ShieldCortex-Export-Generated-At": "2026-02-15T00:00:00.000Z",
+    "X-ShieldCortex-Export-Manifest-Id": "exp_123",
+    "X-ShieldCortex-Export-Signature": "b" * 64,
+    "X-ShieldCortex-Export-Signature-Alg": "HMAC-SHA256",
+    "X-ShieldCortex-Export-Manifest-Persisted": "1",
+}
+
+
 @respx.mock
 def test_export_audit_logs(client: ShieldCortex) -> None:
     csv_data = "id,timestamp,firewall_result\n1,2026-02-15,ALLOW\n"
     respx.get(f"{BASE}/v1/audit/export").mock(
-        return_value=httpx.Response(200, text=csv_data)
+        return_value=httpx.Response(200, text=csv_data, headers=EXPORT_HEADERS)
     )
     result = client.export_audit_logs(format="csv")
 
-    assert "id,timestamp" in result
+    assert "id,timestamp" in result.content
+    assert result.headers.sha256 == "a" * 64
+    assert result.headers.count == 2
+    assert result.headers.generated_at == "2026-02-15T00:00:00.000Z"
+    assert result.headers.manifest_id == "exp_123"
+    assert result.headers.signature == "b" * 64
+    assert result.headers.signature_algorithm == "HMAC-SHA256"
+    assert result.headers.manifest_persisted is True
+
+
+@respx.mock
+def test_export_audit_logs_missing_headers_unverifiable(
+    client: ShieldCortex,
+) -> None:
+    """Absent integrity headers → None/defaults, never empty-string sha."""
+    respx.get(f"{BASE}/v1/audit/export").mock(
+        return_value=httpx.Response(200, text="[]")
+    )
+    result = client.export_audit_logs()
+
+    assert result.content == "[]"
+    assert result.headers.sha256 is None
+    assert result.headers.signature is None
+    assert result.headers.manifest_id is None
+    assert result.headers.count is None
+    assert result.headers.generated_at == ""
+    assert result.headers.signature_algorithm == ""
+    assert result.headers.manifest_persisted is False
+
+
+@respx.mock
+def test_export_audit_logs_malformed_count_is_none(client: ShieldCortex) -> None:
+    respx.get(f"{BASE}/v1/audit/export").mock(
+        return_value=httpx.Response(
+            200, text="[]", headers={"X-ShieldCortex-Export-Count": "not-a-number"}
+        )
+    )
+    result = client.export_audit_logs()
+
+    assert result.headers.count is None
+
+
+@respx.mock
+async def test_async_export_audit_logs(async_client: AsyncShieldCortex) -> None:
+    respx.get(f"{BASE}/v1/audit/export").mock(
+        return_value=httpx.Response(200, text="[]", headers=EXPORT_HEADERS)
+    )
+    result = await async_client.export_audit_logs()
+
+    assert result.content == "[]"
+    assert result.headers.sha256 == "a" * 64
+    assert result.headers.count == 2
+    assert result.headers.manifest_persisted is True
 
 
 # ── Quarantine ────────────────────────────────────────────────────────────────
@@ -493,3 +556,47 @@ def test_sends_auth_header(client: ShieldCortex) -> None:
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer sc_test_abc123"
     assert "shieldcortex-python" in request.headers["user-agent"]
+
+
+# ── Billing (deprecated) ──────────────────────────────────────────────────────
+
+
+@respx.mock
+def test_create_checkout_session_warns_deprecated(client: ShieldCortex) -> None:
+    respx.post(f"{BASE}/v1/billing/checkout").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        result = client.create_checkout_session()
+
+    assert result.url == "https://checkout.stripe.com/x"
+
+
+@respx.mock
+def test_create_portal_session_warns_deprecated(client: ShieldCortex) -> None:
+    respx.post(f"{BASE}/v1/billing/portal").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        result = client.create_portal_session()
+
+    assert result.url == "https://billing.stripe.com/x"
+
+
+@respx.mock
+async def test_async_billing_warns_deprecated(
+    async_client: AsyncShieldCortex,
+) -> None:
+    respx.post(f"{BASE}/v1/billing/checkout").mock(
+        return_value=httpx.Response(200, json={"url": "https://checkout.stripe.com/x"})
+    )
+    respx.post(f"{BASE}/v1/billing/portal").mock(
+        return_value=httpx.Response(200, json={"url": "https://billing.stripe.com/x"})
+    )
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        checkout = await async_client.create_checkout_session()
+    with pytest.warns(DeprecationWarning, match="self-serve plans"):
+        portal = await async_client.create_portal_session()
+
+    assert checkout.url == "https://checkout.stripe.com/x"
+    assert portal.url == "https://billing.stripe.com/x"

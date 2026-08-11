@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterable
 from typing import Any, Literal, TypeVar
 
@@ -19,14 +20,36 @@ from shieldcortex._http import (
     DEFAULT_TIMEOUT,
     build_headers,
     deserialize,
+    parse_export_headers,
     raise_for_status,
     serialize,
     serialize_query,
+)
+from shieldcortex._payloads import (
+    audit_exports_params,
+    audit_ingest_payload,
+    export_verifications_params,
+    export_verify_payload,
+    incident_replay_params,
+    iron_dome_events_params,
+    iron_dome_stats_params,
+    recall_explain_params,
+    skill_ingest_payload,
+    skill_list_params,
+    sync_graph_payload,
+    sync_memories_payload,
+    synced_memories_params,
+    threat_report_payload,
+    verification_list_params,
+    verify_submit_payload,
 )
 from shieldcortex.errors import ShieldCortexError
 from shieldcortex.types import (
     AlertRule,
     AuditEntry,
+    AuditExportResult,
+    AuditIngestEntry,
+    AuditIngestResponse,
     AuditQuery,
     AuditResponse,
     AuditStats,
@@ -35,15 +58,24 @@ from shieldcortex.types import (
     CheckoutResponse,
     CreateKeyResponse,
     CreateWebhookResponse,
+    DeleteVerificationResponse,
     Device,
+    ExportManifestDetail,
+    ExportManifestListResponse,
+    ExportVerificationListResponse,
+    ExportVerifyResponse,
     FirewallRule,
+    IncidentReplayResponse,
     InjectionPattern,
     InjectionPatternsResponse,
     Invite,
     InviteListResponse,
+    IronDomeEventsResponse,
     IronDomePoliciesResponse,
     IronDomePolicy,
+    IronDomeStats,
     KeyListResponse,
+    LicenseInfo,
     MembersResponse,
     PatternSyncResponse,
     PatternTestResult,
@@ -52,15 +84,33 @@ from shieldcortex.types import (
     QuarantineItem,
     QuarantineQuery,
     QuarantineResponse,
+    RecallExplainResponse,
+    RegenerateLicenseResponse,
     ReviewResponse,
     ScanConfig,
     ScanResult,
     ScanSource,
+    SkillIngestResponse,
+    SkillScanFile,
+    SkillScanListResponse,
     SkillScanResult,
+    SyncedMemoriesResponse,
+    SyncGraphEntity,
+    SyncGraphResponse,
+    SyncGraphTriple,
+    SyncHealth,
+    SyncMemory,
+    SyncMemoryEntityLink,
+    SyncPushResponse,
     TeamInfo,
     TestWebhookResponse,
+    ThreatReportResponse,
     TrendResponse,
     UsageResponse,
+    VerificationDetail,
+    VerificationListResponse,
+    VerificationResult,
+    VerificationStats,
     Webhook,
     WebhookDelivery,
 )
@@ -202,13 +252,21 @@ class AsyncShieldCortex:
         *,
         format: Literal["json", "csv"] = "json",
         query: AuditQuery | None = None,
-    ) -> str:
-        """Export audit logs as JSON or CSV string."""
+    ) -> AuditExportResult:
+        """Download audit logs as a file body (CSV text or JSON). Unlike
+        every other endpoint this does NOT return a JSON envelope — the raw
+        body is handed back verbatim in ``content`` alongside the parsed
+        ``X-ShieldCortex-Export-*`` integrity headers. Absent
+        ``headers.sha256``/``headers.signature`` ⇒ the export is
+        unverifiable."""
         params: dict[str, str] = {"format": format}
         if query:
             params.update(serialize_query(query))
         response = await self._raw_get("/v1/audit/export", params)
-        return response.text
+        return AuditExportResult(
+            content=response.text,
+            headers=parse_export_headers(response.headers),
+        )
 
     async def iter_audit_logs(
         self,
@@ -313,11 +371,31 @@ class AsyncShieldCortex:
     # ── Billing ───────────────────────────────────────────────────────────────
 
     async def create_checkout_session(self) -> CheckoutResponse:
-        """Create a Stripe checkout session for plan upgrade."""
+        """Create a Stripe checkout session for plan upgrade.
+
+        Deprecated: self-serve plans retired 2026-07 (Free + Enterprise
+        model); retained for grandfathered licence holders."""
+        warnings.warn(
+            "create_checkout_session is deprecated: self-serve plans were "
+            "retired 2026-07 (Free + Enterprise model); retained for "
+            "grandfathered licence holders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._post("/v1/billing/checkout", {}, CheckoutResponse)
 
     async def create_portal_session(self) -> PortalResponse:
-        """Create a Stripe billing portal session."""
+        """Create a Stripe billing portal session.
+
+        Deprecated: self-serve plans retired 2026-07 (Free + Enterprise
+        model); retained for grandfathered licence holders."""
+        warnings.warn(
+            "create_portal_session is deprecated: self-serve plans were "
+            "retired 2026-07 (Free + Enterprise model); retained for "
+            "grandfathered licence holders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self._post("/v1/billing/portal", {}, PortalResponse)
 
     # ── Devices ───────────────────────────────────────────────────────────────
@@ -584,6 +662,379 @@ class AsyncShieldCortex:
     async def delete_iron_dome_policy(self, id: int) -> None:
         """Delete an Iron Dome policy."""
         await self._raw_delete(f"/v1/iron-dome/policies/{id}")
+
+    # ── Verification (Enterprise) ─────────────────────────────────────────────
+
+    async def submit_verification(
+        self,
+        content: str,
+        *,
+        source_type: str,
+        source_identifier: str,
+        anomaly_score: float,
+        pipeline_result: Literal["ALLOW", "BLOCK", "QUARANTINE"],
+        title: str | None = None,
+        trust_score: float | None = None,
+        threat_indicators: list[str] | None = None,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        mode: Literal["sync", "async"] = "sync",
+    ) -> VerificationResult:
+        """Submit content for LLM verification. With the default
+        ``mode="sync"`` the verdict is returned inline (200, not 201).
+        ``mode="async"`` is accepted by the SDK but the API currently
+        returns 501 Not Implemented."""
+        payload = verify_submit_payload(
+            content,
+            source_type=source_type,
+            source_identifier=source_identifier,
+            anomaly_score=anomaly_score,
+            pipeline_result=pipeline_result,
+            title=title,
+            trust_score=trust_score,
+            threat_indicators=threat_indicators,
+            device_id=device_id,
+            device_name=device_name,
+            mode=mode,
+        )
+        return await self._post("/v1/verify", payload, VerificationResult)
+
+    async def list_verifications(
+        self,
+        *,
+        from_time: str | None = None,
+        to: str | None = None,
+        status: Literal["pending", "completed", "failed", "cached"] | None = None,
+        verdict: Literal["SAFE", "SUSPICIOUS", "THREAT"] | None = None,
+        source: str | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> VerificationListResponse:
+        """List verification requests with optional filters and pagination."""
+        params = verification_list_params(
+            from_time=from_time,
+            to=to,
+            status=status,
+            verdict=verdict,
+            source=source,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+        return await self._get("/v1/verify", params, VerificationListResponse)
+
+    async def get_verification_stats(self) -> VerificationStats:
+        """Get today's verification counts and daily quota usage."""
+        return await self._get("/v1/verify/stats", {}, VerificationStats)
+
+    async def get_verification(self, id: int) -> VerificationDetail:
+        """Get a single verification by ID (polling target for pending)."""
+        return await self._get(f"/v1/verify/{id}", {}, VerificationDetail)
+
+    async def delete_verification(self, id: int) -> DeleteVerificationResponse:
+        """Delete a verification record (admin scope)."""
+        response = await self._raw_delete(f"/v1/verify/{id}")
+        return deserialize(response.json(), DeleteVerificationResponse)
+
+    # ── Skills ────────────────────────────────────────────────────────────────
+
+    async def ingest_skill_scans(
+        self,
+        files: list[SkillScanFile],
+        *,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        platform: str | None = None,
+        scanned_at: str | None = None,
+    ) -> SkillIngestResponse:
+        """Bulk ingest skill scan results (upsert keyed on device + file path)."""
+        payload = skill_ingest_payload(
+            files,
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+            scanned_at=scanned_at,
+        )
+        return await self._post("/v1/skills/ingest", payload, SkillIngestResponse)
+
+    async def list_skill_scans(
+        self, *, device_id: str | None = None
+    ) -> SkillScanListResponse:
+        """List synced skill scans (newest first, hard cap 200 — no pagination)."""
+        params = skill_list_params(device_id=device_id)
+        return await self._get("/v1/skills", params, SkillScanListResponse)
+
+    # ── Threats ───────────────────────────────────────────────────────────────
+
+    async def report_threat(
+        self, events: dict[str, Any] | list[dict[str, Any]]
+    ) -> ThreatReportResponse:
+        """Report realtime threat events (OpenClaw compat shim, max 100).
+
+        Prefer POST /v1/audit/ingest for canonical audit entries; this
+        endpoint best-effort maps loose event payloads.
+        """
+        payload = threat_report_payload(events)
+        return await self._post("/v1/threats", payload, ThreatReportResponse)
+
+    # ── Incidents ─────────────────────────────────────────────────────────────
+
+    async def replay_incidents(
+        self,
+        *,
+        from_time: str | None = None,
+        to: str | None = None,
+        device_id: str | None = None,
+        source_identifier: str | None = None,
+        project: str | None = None,
+        search: str | None = None,
+        limit: int = 100,
+    ) -> IncidentReplayResponse:
+        """Replay a merged incident timeline across the audit, verification,
+        sync and memory streams. ``from_time``/``to`` map to the API's
+        ``from``/``to`` ISO datetime params."""
+        params = incident_replay_params(
+            from_time=from_time,
+            to=to,
+            device_id=device_id,
+            source_identifier=source_identifier,
+            project=project,
+            search=search,
+            limit=limit,
+        )
+        return await self._get(
+            "/v1/incidents/replay", params, IncidentReplayResponse
+        )
+
+    # ── Recall ────────────────────────────────────────────────────────────────
+
+    async def explain_recall(
+        self,
+        query: str,
+        *,
+        project: str | None = None,
+        device_id: str | None = None,
+        limit: int = 8,
+    ) -> RecallExplainResponse:
+        """Explain how a recall query ranks synced memories, with per-result
+        score breakdowns."""
+        params = recall_explain_params(
+            query, project=project, device_id=device_id, limit=limit
+        )
+        return await self._get("/v1/recall/explain", params, RecallExplainResponse)
+
+    # ── Sync ──────────────────────────────────────────────────────────────────
+
+    async def get_sync_health(self) -> SyncHealth:
+        """Check that the team's sync tables are present (audit or admin
+        scope). ``status`` degrades when any required table is missing."""
+        return await self._get("/v1/sync/health", {}, SyncHealth)
+
+    async def push_memories(
+        self,
+        memories: list[SyncMemory],
+        *,
+        device_id: str,
+        device_name: str | None = None,
+        platform: str | None = None,
+    ) -> SyncPushResponse:
+        """Push a batch of memories (1–200) for a device (audit or admin
+        scope). The response includes the tombstone (``deleted``) count.
+        Exceeding the per-plan synced-memory cap returns 402 with a
+        ``synced: {used, limit}`` object in the error body."""
+        payload = sync_memories_payload(
+            memories,
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+        )
+        return await self._post("/v1/sync/memories", payload, SyncPushResponse)
+
+    async def list_synced_memories(
+        self,
+        *,
+        device_id: str | None = None,
+        project: str | None = None,
+        search: str | None = None,
+        include_deleted: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> SyncedMemoriesResponse:
+        """List synced memories (audit or admin scope). An unknown
+        ``device_id`` returns an empty 200 with NO ``summary`` key, so
+        ``summary`` is ``None`` on that branch. ``include_deleted=False``
+        and ``None`` both OMIT the param — the server Boolean-coerces any
+        present value (even ``"false"``) as enabling it."""
+        params = synced_memories_params(
+            device_id=device_id,
+            project=project,
+            search=search,
+            include_deleted=include_deleted,
+            limit=limit,
+            offset=offset,
+        )
+        return await self._get(
+            "/v1/sync/memories", params, SyncedMemoriesResponse
+        )
+
+    async def push_memory_graph(
+        self,
+        *,
+        device_id: str,
+        device_name: str | None = None,
+        platform: str | None = None,
+        entities: list[SyncGraphEntity] | None = None,
+        triples: list[SyncGraphTriple] | None = None,
+        memory_entities: list[SyncMemoryEntityLink] | None = None,
+        prune_memory_external_ids: list[str] | None = None,
+    ) -> SyncGraphResponse:
+        """Push memory-graph entities/triples/links for a device (audit or
+        admin scope). At least one of the four collections must be non-empty
+        or the API rejects the request with 400."""
+        payload = sync_graph_payload(
+            device_id=device_id,
+            device_name=device_name,
+            platform=platform,
+            entities=entities,
+            triples=triples,
+            memory_entities=memory_entities,
+            prune_memory_external_ids=prune_memory_external_ids,
+        )
+        return await self._post("/v1/sync/graph", payload, SyncGraphResponse)
+
+    # ── License ───────────────────────────────────────────────────────────────
+
+    async def get_license(self) -> LicenseInfo:
+        """Get the team's licence status. With no licence on file the API
+        returns ``tier="free"``/``status="none"`` and omits
+        ``last_validated_at`` entirely (it is never null on that branch)."""
+        return await self._get("/v1/license", {}, LicenseInfo)
+
+    async def regenerate_license(self) -> RegenerateLicenseResponse:
+        """Revoke the existing licence key and issue a new one (admin scope,
+        paid plan). Expiry is 35 days out; the key is only returned once.
+        Free-plan teams get 402 Plan Required."""
+        return await self._post(
+            "/v1/license/regenerate", {}, RegenerateLicenseResponse
+        )
+
+    # ── Audit Iron Dome & Exports ─────────────────────────────────────────────
+
+    async def get_iron_dome_stats(
+        self,
+        *,
+        time_range: Literal["24h", "7d", "30d"] = "24h",
+        device_id: str | None = None,
+    ) -> IronDomeStats:
+        """Get Iron Dome event stats (Pro+ — free plans get 402 Payment
+        Required). The ``timeRange`` query param is camelCase on the wire.
+        An unknown ``device_id`` returns zeros, never 404."""
+        params = iron_dome_stats_params(
+            time_range=time_range, device_id=device_id
+        )
+        return await self._get(
+            "/v1/audit/iron-dome/stats", params, IronDomeStats
+        )
+
+    async def get_iron_dome_events(
+        self,
+        *,
+        time_range: Literal["24h", "7d", "30d"] = "24h",
+        device_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> IronDomeEventsResponse:
+        """List Iron Dome audit events (Pro+ — free plans get 402). The
+        envelope carries NO ``total`` (unlike GET /v1/audit); ``has_more``
+        is the page-full heuristic."""
+        params = iron_dome_events_params(
+            time_range=time_range,
+            device_id=device_id,
+            limit=limit,
+            offset=offset,
+        )
+        return await self._get(
+            "/v1/audit/iron-dome/events", params, IronDomeEventsResponse
+        )
+
+    async def ingest_audit_events(
+        self, entries: list[AuditIngestEntry]
+    ) -> AuditIngestResponse:
+        """Bulk ingest canonical audit entries (1–100; audit or admin
+        scope). Consumes monthly scan quota — exceeding it returns 402
+        with a camelCase ``usage`` object. Duplicates are silently deduped
+        server-side but ``ingested`` echoes the submitted count."""
+        payload = audit_ingest_payload(entries)
+        return await self._post(
+            "/v1/audit/ingest", payload, AuditIngestResponse
+        )
+
+    async def list_audit_exports(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        format: Literal["csv", "json"] | None = None,
+        shape: Literal["array", "envelope"] | None = None,
+        search: str | None = None,
+    ) -> ExportManifestListResponse:
+        """List signed export manifests (audit or admin scope). Every call
+        to ``export_audit_logs`` persists one, even for empty exports.
+        The envelope carries NO ``total``."""
+        params = audit_exports_params(
+            limit=limit, offset=offset, format=format, shape=shape, search=search
+        )
+        return await self._get(
+            "/v1/audit/exports", params, ExportManifestListResponse
+        )
+
+    async def get_audit_export_manifest(
+        self, manifest_id: str
+    ) -> ExportManifestDetail:
+        """Get a single export manifest with a fresh server-side signature
+        check (audit or admin scope). ``verification.signature_valid``
+        false signals tampering or signing-secret rotation."""
+        return await self._get(
+            f"/v1/audit/exports/{manifest_id}", {}, ExportManifestDetail
+        )
+
+    async def verify_audit_export(
+        self,
+        manifest_id: str,
+        *,
+        export_sha256: str | None = None,
+        signature: str | None = None,
+    ) -> ExportVerifyResponse:
+        """Verify an export against its signed manifest (audit or admin
+        scope). ``sha256_matches`` is None when no ``export_sha256`` was
+        provided; with no ``signature`` the stored one is self-checked.
+        Every call persists a verification event."""
+        payload = export_verify_payload(
+            export_sha256=export_sha256, signature=signature
+        )
+        return await self._post(
+            f"/v1/audit/exports/{manifest_id}/verify",
+            payload,
+            ExportVerifyResponse,
+        )
+
+    async def list_audit_export_verifications(
+        self,
+        manifest_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ExportVerificationListResponse:
+        """List persisted verification events for a manifest (audit or
+        admin scope). An unknown manifestId returns 200 with empty events
+        (no existence check); the envelope carries NO ``total``."""
+        params = export_verifications_params(limit=limit, offset=offset)
+        return await self._get(
+            f"/v1/audit/exports/{manifest_id}/verifications",
+            params,
+            ExportVerificationListResponse,
+        )
 
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 

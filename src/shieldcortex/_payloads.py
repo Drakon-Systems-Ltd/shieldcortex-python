@@ -1,0 +1,341 @@
+"""Shared request payload/param builders for the sync and async clients.
+
+Each builder returns the exact wire dict for one endpoint, so the two client
+classes stay thin transport wrappers around identical request construction
+and cannot drift. Covers the lockstep-0.2.0 route groups; pre-existing
+groups build inline. Defaults live in the client signatures, never here —
+builders take exactly what they're given.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from shieldcortex._http import serialize_snake
+from shieldcortex.types import (
+    AuditIngestEntry,
+    SkillScanFile,
+    SyncGraphEntity,
+    SyncGraphTriple,
+    SyncMemory,
+    SyncMemoryEntityLink,
+)
+
+# ── Verification ──────────────────────────────────────────────────────────────
+
+
+def verify_submit_payload(
+    content: str,
+    *,
+    source_type: str,
+    source_identifier: str,
+    anomaly_score: float,
+    pipeline_result: Literal["ALLOW", "BLOCK", "QUARANTINE"],
+    title: str | None,
+    trust_score: float | None,
+    threat_indicators: list[str] | None,
+    device_id: str | None,
+    device_name: str | None,
+    mode: Literal["sync", "async"],
+) -> dict[str, Any]:
+    """Body for POST /v1/verify."""
+    payload: dict[str, Any] = {
+        "content": content,
+        "source_type": source_type,
+        "source_identifier": source_identifier,
+        "anomaly_score": anomaly_score,
+        "pipeline_result": pipeline_result,
+        "mode": mode,
+    }
+    if title is not None:
+        payload["title"] = title
+    if trust_score is not None:
+        payload["trust_score"] = trust_score
+    if threat_indicators is not None:
+        payload["threat_indicators"] = threat_indicators
+    if device_id is not None:
+        payload["device_id"] = device_id
+    if device_name is not None:
+        payload["device_name"] = device_name
+    return payload
+
+
+def verification_list_params(
+    *,
+    from_time: str | None,
+    to: str | None,
+    status: Literal["pending", "completed", "failed", "cached"] | None,
+    verdict: Literal["SAFE", "SUSPICIOUS", "THREAT"] | None,
+    source: str | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/verify (``from_time`` maps to wire ``from``)."""
+    params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+    if from_time is not None:
+        params["from"] = from_time
+    if to is not None:
+        params["to"] = to
+    if status is not None:
+        params["status"] = status
+    if verdict is not None:
+        params["verdict"] = verdict
+    if source is not None:
+        params["source"] = source
+    if search is not None:
+        params["search"] = search
+    return params
+
+
+# ── Skills ────────────────────────────────────────────────────────────────────
+
+
+def skill_ingest_payload(
+    files: list[SkillScanFile],
+    *,
+    device_id: str | None,
+    device_name: str | None,
+    platform: str | None,
+    scanned_at: str | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/skills/ingest (snake_case wire, matchedText wart)."""
+    payload: dict[str, Any] = {"files": serialize_snake(files)}
+    if device_id is not None:
+        payload["device_id"] = device_id
+    if device_name is not None:
+        payload["device_name"] = device_name
+    if platform is not None:
+        payload["platform"] = platform
+    if scanned_at is not None:
+        payload["scanned_at"] = scanned_at
+    return payload
+
+
+def skill_list_params(*, device_id: str | None) -> dict[str, str]:
+    """Query params for GET /v1/skills."""
+    params: dict[str, str] = {}
+    if device_id is not None:
+        params["device_id"] = device_id
+    return params
+
+
+# ── Threats ───────────────────────────────────────────────────────────────────
+
+
+def threat_report_payload(
+    events: dict[str, Any] | list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Body for POST /v1/threats — always the canonical events envelope."""
+    if isinstance(events, dict):
+        events = [events]
+    return {"events": events}
+
+
+# ── Incidents ─────────────────────────────────────────────────────────────────
+
+
+def incident_replay_params(
+    *,
+    from_time: str | None,
+    to: str | None,
+    device_id: str | None,
+    source_identifier: str | None,
+    project: str | None,
+    search: str | None,
+    limit: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/incidents/replay (``from_time`` → wire ``from``)."""
+    params: dict[str, str] = {"limit": str(limit)}
+    if from_time is not None:
+        params["from"] = from_time
+    if to is not None:
+        params["to"] = to
+    if device_id is not None:
+        params["device_id"] = device_id
+    if source_identifier is not None:
+        params["source_identifier"] = source_identifier
+    if project is not None:
+        params["project"] = project
+    if search is not None:
+        params["search"] = search
+    return params
+
+
+# ── Recall ────────────────────────────────────────────────────────────────────
+
+
+def recall_explain_params(
+    query: str,
+    *,
+    project: str | None,
+    device_id: str | None,
+    limit: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/recall/explain."""
+    params: dict[str, str] = {"query": query, "limit": str(limit)}
+    if project is not None:
+        params["project"] = project
+    if device_id is not None:
+        params["device_id"] = device_id
+    return params
+
+
+# ── Sync ──────────────────────────────────────────────────────────────────────
+
+
+def _sync_device(
+    device_id: str, device_name: str | None, platform: str | None
+) -> dict[str, str]:
+    """The ``device`` sub-object shared by the /v1/sync push endpoints."""
+    device: dict[str, str] = {"device_id": device_id}
+    if device_name is not None:
+        device["device_name"] = device_name
+    if platform is not None:
+        device["platform"] = platform
+    return device
+
+
+def sync_memories_payload(
+    memories: list[SyncMemory],
+    *,
+    device_id: str,
+    device_name: str | None,
+    platform: str | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/sync/memories (snake_case wire, Nones omitted)."""
+    return {
+        "device": _sync_device(device_id, device_name, platform),
+        "memories": serialize_snake(memories),
+    }
+
+
+def synced_memories_params(
+    *,
+    device_id: str | None,
+    project: str | None,
+    search: str | None,
+    include_deleted: bool | None,
+    limit: int,
+    offset: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/sync/memories.
+
+    ``include_deleted`` is only emitted when truthy: the server parses it
+    with zod ``z.coerce.boolean()`` (``Boolean(value)``), so ANY present
+    string — including ``"false"`` — would enable it. False and None both
+    omit the param entirely.
+    """
+    params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+    if device_id is not None:
+        params["device_id"] = device_id
+    if project is not None:
+        params["project"] = project
+    if search is not None:
+        params["search"] = search
+    if include_deleted:
+        params["include_deleted"] = "true"
+    return params
+
+
+def sync_graph_payload(
+    *,
+    device_id: str,
+    device_name: str | None,
+    platform: str | None,
+    entities: list[SyncGraphEntity] | None,
+    triples: list[SyncGraphTriple] | None,
+    memory_entities: list[SyncMemoryEntityLink] | None,
+    prune_memory_external_ids: list[str] | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/sync/graph — absent arrays are omitted (the API
+    defaults them to empty, but requires at least one non-empty)."""
+    payload: dict[str, Any] = {
+        "device": _sync_device(device_id, device_name, platform)
+    }
+    if entities is not None:
+        payload["entities"] = serialize_snake(entities)
+    if triples is not None:
+        payload["triples"] = serialize_snake(triples)
+    if memory_entities is not None:
+        payload["memory_entities"] = serialize_snake(memory_entities)
+    if prune_memory_external_ids is not None:
+        payload["prune_memory_external_ids"] = prune_memory_external_ids
+    return payload
+
+
+# ── Audit Iron Dome & Exports ─────────────────────────────────────────────────
+
+
+def iron_dome_stats_params(
+    *,
+    time_range: Literal["24h", "7d", "30d"],
+    device_id: str | None,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/iron-dome/stats.
+
+    NOTE: ``timeRange`` is camelCase on the wire (deliberate API wart,
+    shared with the trends family).
+    """
+    params: dict[str, str] = {"timeRange": time_range}
+    if device_id is not None:
+        params["device_id"] = device_id
+    return params
+
+
+def iron_dome_events_params(
+    *,
+    time_range: Literal["24h", "7d", "30d"],
+    device_id: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/iron-dome/events (camelCase timeRange)."""
+    params = iron_dome_stats_params(time_range=time_range, device_id=device_id)
+    params["limit"] = str(limit)
+    params["offset"] = str(offset)
+    return params
+
+
+def audit_ingest_payload(entries: list[AuditIngestEntry]) -> dict[str, Any]:
+    """Body for POST /v1/audit/ingest — always the canonical entries shape."""
+    return {"entries": serialize_snake(entries)}
+
+
+def audit_exports_params(
+    *,
+    limit: int,
+    offset: int,
+    format: Literal["csv", "json"] | None,
+    shape: Literal["array", "envelope"] | None,
+    search: str | None,
+) -> dict[str, str]:
+    """Query params for GET /v1/audit/exports."""
+    params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
+    if format is not None:
+        params["format"] = format
+    if shape is not None:
+        params["shape"] = shape
+    if search is not None:
+        params["search"] = search
+    return params
+
+
+def export_verify_payload(
+    *,
+    export_sha256: str | None,
+    signature: str | None,
+) -> dict[str, Any]:
+    """Body for POST /v1/audit/exports/:manifestId/verify (both optional;
+    an empty body triggers the server-side signature self-check)."""
+    payload: dict[str, Any] = {}
+    if export_sha256 is not None:
+        payload["export_sha256"] = export_sha256
+    if signature is not None:
+        payload["signature"] = signature
+    return payload
+
+
+def export_verifications_params(*, limit: int, offset: int) -> dict[str, str]:
+    """Query params for GET /v1/audit/exports/:manifestId/verifications."""
+    return {"limit": str(limit), "offset": str(offset)}

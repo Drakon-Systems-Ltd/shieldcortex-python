@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from collections.abc import Callable
 from typing import Any, TypeVar, get_type_hints
 
 import httpx
@@ -21,6 +22,7 @@ from shieldcortex.errors import (
     ShieldCortexError,
     ValidationError,
 )
+from shieldcortex.types import AuditExportHeaders
 
 T = TypeVar("T")
 
@@ -54,12 +56,12 @@ _QUERY_ALIASES: dict[str, str] = {
 # ── Serialisation ─────────────────────────────────────────────────────────────
 
 
-def serialize(obj: Any) -> Any:
-    """Convert a dataclass (or primitive) to an API-compatible dict.
+def _serialize(obj: Any, key_of: Callable[[dataclasses.Field[Any]], str]) -> Any:
+    """Shared serialisation traversal.
 
-    - Dataclass fields are converted to camelCase
+    - Wire keys are derived per field by ``key_of``
     - None values are omitted
-    - Nested dataclasses are recursed
+    - Nested dataclasses, lists and dicts are recursed
     """
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         result: dict[str, Any] = {}
@@ -67,14 +69,42 @@ def serialize(obj: Any) -> Any:
             value = getattr(obj, f.name)
             if value is None:
                 continue
-            api_key = _to_camel(f.name)
-            result[api_key] = serialize(value)
+            result[key_of(f)] = _serialize(value, key_of)
         return result
     if isinstance(obj, list):
-        return [serialize(item) for item in obj]
+        return [_serialize(item, key_of) for item in obj]
     if isinstance(obj, dict):
-        return {k: serialize(v) for k, v in obj.items()}
+        return {k: _serialize(v, key_of) for k, v in obj.items()}
     return obj
+
+
+def _camel_key(f: dataclasses.Field[Any]) -> str:
+    return _to_camel(f.name)
+
+
+def _snake_wire_key(f: dataclasses.Field[Any]) -> str:
+    return str(f.metadata.get("wire", f.name))
+
+
+def serialize(obj: Any) -> Any:
+    """Convert a dataclass (or primitive) to an API-compatible dict.
+
+    - Dataclass fields are converted to camelCase
+    - None values are omitted
+    - Nested dataclasses are recursed
+    """
+    return _serialize(obj, _camel_key)
+
+
+def serialize_snake(obj: Any) -> Any:
+    """Convert a dataclass (or primitive) to a snake_case wire dict.
+
+    Unlike :func:`serialize`, field names are kept snake_case (the house wire
+    convention). Known camelCase warts (e.g. skills findings[].matchedText)
+    are declared per field via ``metadata={"wire": ...}`` in types.py.
+    None values are omitted; nested dataclasses are recursed.
+    """
+    return _serialize(obj, _snake_wire_key)
 
 
 def serialize_query(obj: Any) -> dict[str, str]:
@@ -221,6 +251,36 @@ def raise_for_status(response: httpx.Response) -> None:
         raise ValidationError(body)
     else:
         raise ShieldCortexError(f"API error: {status}", status, body)
+
+
+# ── Audit export integrity headers ────────────────────────────────────────────
+
+
+def parse_export_headers(headers: httpx.Headers) -> AuditExportHeaders:
+    """Parse the ``X-ShieldCortex-Export-*`` integrity headers.
+
+    Mirrors the TS SDK exactly: absent ``sha256``/``signature``/
+    ``manifest_id`` stay ``None`` (never ``""``) — the export is
+    unverifiable, and a ``""`` manifest_id would build a malformed
+    manifest URL; ``count`` is ``None`` when absent, empty, or
+    non-numeric; the remaining fields default to ``""`` / ``False``.
+    """
+    count_header = headers.get("X-ShieldCortex-Export-Count")
+    count: int | None = None
+    if count_header is not None:
+        try:
+            count = int(count_header)
+        except ValueError:
+            count = None
+    return AuditExportHeaders(
+        sha256=headers.get("X-ShieldCortex-Export-SHA256"),
+        count=count,
+        generated_at=headers.get("X-ShieldCortex-Export-Generated-At", ""),
+        manifest_id=headers.get("X-ShieldCortex-Export-Manifest-Id"),
+        signature=headers.get("X-ShieldCortex-Export-Signature"),
+        signature_algorithm=headers.get("X-ShieldCortex-Export-Signature-Alg", ""),
+        manifest_persisted=headers.get("X-ShieldCortex-Export-Manifest-Persisted") == "1",
+    )
 
 
 # ── Headers ───────────────────────────────────────────────────────────────────
