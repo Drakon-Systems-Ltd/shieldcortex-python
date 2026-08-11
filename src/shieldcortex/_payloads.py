@@ -2,8 +2,9 @@
 
 Each builder returns the exact wire dict for one endpoint, so the two client
 classes stay thin transport wrappers around identical request construction
-and cannot drift. Covers the lockstep-0.2.0 route groups only (verify,
-skills, threats, incidents, recall) — pre-existing groups build inline.
+and cannot drift. Covers the lockstep-0.2.0 route groups; pre-existing
+groups build inline. Defaults live in the client signatures, never here —
+builders take exactly what they're given.
 """
 
 from __future__ import annotations
@@ -30,12 +31,12 @@ def verify_submit_payload(
     source_identifier: str,
     anomaly_score: float,
     pipeline_result: Literal["ALLOW", "BLOCK", "QUARANTINE"],
-    title: str | None = None,
-    trust_score: float | None = None,
-    threat_indicators: list[str] | None = None,
-    device_id: str | None = None,
-    device_name: str | None = None,
-    mode: Literal["sync", "async"] = "sync",
+    title: str | None,
+    trust_score: float | None,
+    threat_indicators: list[str] | None,
+    device_id: str | None,
+    device_name: str | None,
+    mode: Literal["sync", "async"],
 ) -> dict[str, Any]:
     """Body for POST /v1/verify."""
     payload: dict[str, Any] = {
@@ -61,14 +62,14 @@ def verify_submit_payload(
 
 def verification_list_params(
     *,
-    from_time: str | None = None,
-    to: str | None = None,
-    status: Literal["pending", "completed", "failed", "cached"] | None = None,
-    verdict: Literal["SAFE", "SUSPICIOUS", "THREAT"] | None = None,
-    source: str | None = None,
-    search: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    from_time: str | None,
+    to: str | None,
+    status: Literal["pending", "completed", "failed", "cached"] | None,
+    verdict: Literal["SAFE", "SUSPICIOUS", "THREAT"] | None,
+    source: str | None,
+    search: str | None,
+    limit: int,
+    offset: int,
 ) -> dict[str, str]:
     """Query params for GET /v1/verify (``from_time`` maps to wire ``from``)."""
     params: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
@@ -93,10 +94,10 @@ def verification_list_params(
 def skill_ingest_payload(
     files: list[SkillScanFile],
     *,
-    device_id: str | None = None,
-    device_name: str | None = None,
-    platform: str | None = None,
-    scanned_at: str | None = None,
+    device_id: str | None,
+    device_name: str | None,
+    platform: str | None,
+    scanned_at: str | None,
 ) -> dict[str, Any]:
     """Body for POST /v1/skills/ingest (snake_case wire, matchedText wart)."""
     payload: dict[str, Any] = {"files": serialize_snake(files)}
@@ -111,7 +112,7 @@ def skill_ingest_payload(
     return payload
 
 
-def skill_list_params(*, device_id: str | None = None) -> dict[str, str]:
+def skill_list_params(*, device_id: str | None) -> dict[str, str]:
     """Query params for GET /v1/skills."""
     params: dict[str, str] = {}
     if device_id is not None:
@@ -136,13 +137,13 @@ def threat_report_payload(
 
 def incident_replay_params(
     *,
-    from_time: str | None = None,
-    to: str | None = None,
-    device_id: str | None = None,
-    source_identifier: str | None = None,
-    project: str | None = None,
-    search: str | None = None,
-    limit: int = 100,
+    from_time: str | None,
+    to: str | None,
+    device_id: str | None,
+    source_identifier: str | None,
+    project: str | None,
+    search: str | None,
+    limit: int,
 ) -> dict[str, str]:
     """Query params for GET /v1/incidents/replay (``from_time`` → wire ``from``)."""
     params: dict[str, str] = {"limit": str(limit)}
@@ -167,9 +168,9 @@ def incident_replay_params(
 def recall_explain_params(
     query: str,
     *,
-    project: str | None = None,
-    device_id: str | None = None,
-    limit: int = 8,
+    project: str | None,
+    device_id: str | None,
+    limit: int,
 ) -> dict[str, str]:
     """Query params for GET /v1/recall/explain."""
     params: dict[str, str] = {"query": query, "limit": str(limit)}
