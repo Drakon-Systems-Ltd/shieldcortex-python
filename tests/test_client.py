@@ -245,9 +245,9 @@ def test_export_audit_logs_missing_headers_unverifiable(
     assert result.content == "[]"
     assert result.headers.sha256 is None
     assert result.headers.signature is None
+    assert result.headers.manifest_id is None
     assert result.headers.count is None
     assert result.headers.generated_at == ""
-    assert result.headers.manifest_id == ""
     assert result.headers.signature_algorithm == ""
     assert result.headers.manifest_persisted is False
 

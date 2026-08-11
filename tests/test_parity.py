@@ -3,9 +3,9 @@
 Drift tripwire, NOT a correctness proof. It asserts every manifest path
 template appears in the client source (so the manifest can't silently rot),
 but it does not prove the method attached to each path (e.g. GET vs POST
-/v1/sync/memories share one template), and substring matching can alias
-(``/v1/audit/export`` also matches inside ``/v1/audit/exports``). Review
-both files together whenever the API surface changes.
+/v1/sync/memories share one template), nor that the client has no endpoints
+missing from the manifest. Review both files together whenever the API
+surface changes.
 """
 
 from __future__ import annotations
@@ -31,8 +31,15 @@ def _camelise(name: str) -> str:
 _NORMALISED = re.sub(r"\{(\w+)\}", lambda m: "{" + _camelise(m.group(1)) + "}", _CLIENT_SOURCE)
 
 
+def _appears_in_source(path: str) -> bool:
+    # Anchored on the closing delimiter so a path that merely prefixes another
+    # (e.g. /v1/audit inside /v1/audit/stats) cannot satisfy the check. In the
+    # client source a path literal always ends at a quote.
+    return re.search(re.escape(path) + r'["\'`$?]', _NORMALISED) is not None
+
+
 def test_every_covered_path_appears_in_client_source() -> None:
-    missing = [(method, path) for method, path in COVERED if path not in _NORMALISED]
+    missing = [(method, path) for method, path in COVERED if not _appears_in_source(path)]
     assert missing == []
 
 

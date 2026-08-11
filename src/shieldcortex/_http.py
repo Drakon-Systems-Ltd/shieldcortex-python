@@ -259,10 +259,11 @@ def raise_for_status(response: httpx.Response) -> None:
 def parse_export_headers(headers: httpx.Headers) -> AuditExportHeaders:
     """Parse the ``X-ShieldCortex-Export-*`` integrity headers.
 
-    Mirrors the TS SDK exactly: absent ``sha256``/``signature`` stay
-    ``None`` (never ``""``) — the export is unverifiable; ``count`` is
-    ``None`` when absent or non-numeric; the remaining fields default to
-    ``""`` / ``False``.
+    Mirrors the TS SDK exactly: absent ``sha256``/``signature``/
+    ``manifest_id`` stay ``None`` (never ``""``) — the export is
+    unverifiable, and a ``""`` manifest_id would build a malformed
+    manifest URL; ``count`` is ``None`` when absent, empty, or
+    non-numeric; the remaining fields default to ``""`` / ``False``.
     """
     count_header = headers.get("X-ShieldCortex-Export-Count")
     count: int | None = None
@@ -275,7 +276,7 @@ def parse_export_headers(headers: httpx.Headers) -> AuditExportHeaders:
         sha256=headers.get("X-ShieldCortex-Export-SHA256"),
         count=count,
         generated_at=headers.get("X-ShieldCortex-Export-Generated-At", ""),
-        manifest_id=headers.get("X-ShieldCortex-Export-Manifest-Id", ""),
+        manifest_id=headers.get("X-ShieldCortex-Export-Manifest-Id"),
         signature=headers.get("X-ShieldCortex-Export-Signature"),
         signature_algorithm=headers.get("X-ShieldCortex-Export-Signature-Alg", ""),
         manifest_persisted=headers.get("X-ShieldCortex-Export-Manifest-Persisted") == "1",

@@ -197,18 +197,22 @@ class TrendResponse:
 class AuditExportHeaders:
     """Parsed ``X-ShieldCortex-Export-*`` integrity headers.
 
-    ``sha256`` and ``signature`` are load-bearing: when the header is
-    absent the field is ``None`` (never ``""``), meaning the export CANNOT
-    be verified — treat it as unverifiable rather than comparing against
-    an empty string.
+    ``sha256``, ``signature`` and ``manifest_id`` are load-bearing: when
+    the header is absent the field is ``None`` (never ``""``), meaning the
+    export CANNOT be verified — treat it as unverifiable rather than
+    comparing against an empty string or building a manifest URL from
+    ``""``.
     """
 
     #: Hex SHA-256 of the exact body. None when absent — export is unverifiable.
     sha256: Optional[str]
-    #: Entry count. None when the header is absent or non-numeric.
+    #: Entry count. None when the header is absent, empty, or non-numeric.
     count: Optional[int]
     generated_at: str
-    manifest_id: str
+    #: Manifest id (``exp_<32hex>``) for get_audit_export_manifest /
+    #: verify_audit_export. None when the header is absent — never ``""``
+    #: (which would build a malformed manifest URL).
+    manifest_id: Optional[str]
     #: HMAC-SHA256 hex signature. None when absent — export is unverifiable.
     signature: Optional[str]
     signature_algorithm: str
