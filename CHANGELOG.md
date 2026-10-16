@@ -1,9 +1,29 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
 
+### Fixed
+
+- LangChain async blocks now propagate when `raise_on_block=True`.
+- Bare LLM and chat model inputs are scanned by their start callbacks.
+  Chat message text covers string content, string blocks, and dict blocks
+  whose `text` is a string and whose `type` is `"text"` or absent. Empty
+  prompts and empty chat text are skipped; chain and tool scans are unchanged.
+
+### Added
+
+- `ShieldCortexSyncCallbackHandler` for synchronous LangChain calls and
+  `ContentBlockedError` for catching blocked content with its scan result.
 - Ship a PEP 561 `py.typed` marker so type checkers treat the installed
   package as typed (the `Typing :: Typed` classifier was already declared).
+
+### Documentation
+
+- LangChain: output is scanned when the model finishes, so with `stream` /
+  `astream` a BLOCK on output stops the run only after the chunks were
+  delivered. Only `ShieldCortexError` from the scan call is logged and
+  skipped; other exceptions (for example connection errors) stop the run
+  when `raise_on_block=True`.
 - README: describe `ShieldCortexMemoryGuard` as a framework-agnostic
   pre-write guard (it does not import or hook into CrewAI; the `[crewai]`
   extra only installs CrewAI itself).
