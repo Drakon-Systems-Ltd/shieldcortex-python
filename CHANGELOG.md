@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.3.1 — 2026-10-16
+
 ### Fixed
 
 - LangChain async blocks now propagate when `raise_on_block=True`.
