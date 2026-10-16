@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- LangChain async blocks now propagate when `raise_on_block=True`.
+- Bare LLM and chat model inputs are scanned by their start callbacks.
+
+### Added
+
+- `ShieldCortexSyncCallbackHandler` for synchronous LangChain calls and
+  `ContentBlockedError` for catching blocked content with its scan result.
+
 ## 0.2.0 — 2026-08-11
 
 SDK lockstep release: the Python SDK now covers the full customer surface

@@ -100,18 +100,37 @@ except MemoryBlockedError as e:
 
 ## LangChain Integration
 
-Automatically scan all LLM inputs and outputs as they flow through your chain — no changes to your existing code:
+The callbacks scan chain inputs, LLM prompts, text in chat messages, tool inputs,
+LLM outputs, and string tool outputs. Use the async handler for `ainvoke` and
+`astream`, or the sync handler for `invoke`:
 
 ```python
-from shieldcortex import AsyncShieldCortex
-from shieldcortex.integrations.langchain import ShieldCortexCallbackHandler
+from langchain_openai import ChatOpenAI  # or any LangChain chat model / LLM
+from shieldcortex import AsyncShieldCortex, ShieldCortex
+from shieldcortex.integrations.langchain import (
+    ContentBlockedError,
+    ShieldCortexCallbackHandler,
+    ShieldCortexSyncCallbackHandler,
+)
 
-client = AsyncShieldCortex(api_key="sc_live_...")
-handler = ShieldCortexCallbackHandler(client, raise_on_block=True)
+model = ChatOpenAI()
 
-# Scans inputs on chain start, outputs on LLM end, and tool I/O
-llm = ChatOpenAI(callbacks=[handler])
+async with AsyncShieldCortex(api_key="sc_live_...") as client:
+    handler = ShieldCortexCallbackHandler(client, raise_on_block=True)
+    try:
+        reply = await model.ainvoke("Hello", config={"callbacks": [handler]})
+    except ContentBlockedError as error:  # also a ValueError
+        print(error.result.firewall.reason, error.source_identifier)
+
+with ShieldCortex(api_key="sc_live_...") as client:
+    handler = ShieldCortexSyncCallbackHandler(client, raise_on_block=True)
+    reply = model.invoke("Hello", config={"callbacks": [handler]})
 ```
+
+Only `BLOCK` verdicts act today. With `raise_on_block=True`, a block stops the
+run with `ContentBlockedError`; otherwise it logs a warning. Scan API errors
+are logged and the run continues. Use the matching handler for the call mode:
+LangChain cannot propagate an async handler's block from `invoke`.
 
 ## Audit Logs
 
