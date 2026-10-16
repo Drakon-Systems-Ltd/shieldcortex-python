@@ -35,7 +35,7 @@ pip install shieldcortex
 With framework integrations:
 
 ```bash
-pip install shieldcortex[crewai]     # CrewAI memory guard
+pip install shieldcortex[crewai]     # also installs CrewAI (the memory guard itself does not need it)
 pip install shieldcortex[langchain]  # LangChain callback handler
 ```
 
@@ -56,6 +56,19 @@ else:
     print(f"Threats: {result.firewall.threat_indicators}")
     # don't store — content failed security checks
 ```
+
+The sync client holds an `httpx` connection pool. Use it as a context manager
+so the pool is closed when you are done:
+
+```python
+from shieldcortex import ShieldCortex
+
+with ShieldCortex(api_key="sc_live_...") as client:
+    result = client.scan("user input to remember")
+```
+
+In long-lived processes that keep a client around instead, call
+`client.close()` when you are finished with it.
 
 ## Async Support
 
@@ -80,9 +93,9 @@ result = client.scan_batch([
 print(f"Scanned: {result.total_scanned}, Threats: {result.threats}")
 ```
 
-## CrewAI Integration
+## Memory Guard (CrewAI and others)
 
-Add a security gate between your CrewAI agent and its memory store. The guard scans all content before it's saved — blocking prompt injection and credential leaks:
+`ShieldCortexMemoryGuard` is a framework-agnostic pre-write check: call `guard.check()` before writing content to any memory store — from a CrewAI agent, another framework, or your own code. It scans the content and raises `MemoryBlockedError` if it is blocked (or, by default, quarantined). It does not hook into CrewAI automatically and does not import CrewAI; the `[crewai]` extra only installs CrewAI itself.
 
 ```python
 from shieldcortex import ShieldCortex
@@ -128,9 +141,22 @@ with ShieldCortex(api_key="sc_live_...") as client:
 ```
 
 Only `BLOCK` verdicts act today. With `raise_on_block=True`, a block stops the
-run with `ContentBlockedError`; otherwise it logs a warning. Scan API errors
-are logged and the run continues. Use the matching handler for the call mode:
-LangChain cannot propagate an async handler's block from `invoke`.
+run with `ContentBlockedError`; otherwise it logs a warning. Use the matching
+handler for the call mode: LangChain cannot propagate an async handler's block
+from `invoke`.
+
+- **Chat message text** means string content, string blocks, and dict blocks
+  whose `text` is a string and whose `type` is `"text"` or absent. Images and
+  other block types are not scanned. Empty prompts are skipped.
+- **Streaming:** LLM output is scanned when the model finishes. With `stream`
+  or `astream`, every chunk has already reached your code by then, so an
+  output block stops the run after delivery and cannot prevent exposure.
+  Buffer the stream yourself if blocked output must never be shown. Input
+  scans still run before the model starts.
+- **Scan errors:** a `ShieldCortexError` from the scan call (HTTP error,
+  timeout) is logged and that scan is skipped. Other exceptions, such as
+  connection errors, are not caught: with `raise_on_block=True` they stop the
+  run, otherwise LangChain logs them.
 
 ## Audit Logs
 

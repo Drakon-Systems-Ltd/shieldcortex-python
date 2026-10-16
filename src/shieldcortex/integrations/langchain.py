@@ -2,9 +2,19 @@
 
 The async handler is for ``ainvoke``/``astream``; the sync handler is for
 ``invoke``. They scan chain inputs, LLM prompts, chat message text, tool inputs,
-LLM outputs, and string tool outputs. Only ``BLOCK`` verdicts act today.
-With ``raise_on_block=True``, a block raises :class:`ContentBlockedError`.
-Scan API errors are logged and the run continues.
+LLM outputs, and string tool outputs. Chat message text means string content,
+string blocks, and dict blocks whose ``text`` is a string and whose ``type`` is
+``"text"`` or absent. Only ``BLOCK`` verdicts act today. With
+``raise_on_block=True``, a block raises :class:`ContentBlockedError`.
+
+LLM output is scanned in ``on_llm_end``, after the model finishes. With
+``stream``/``astream`` every chunk has already reached the caller by then, so
+an output block stops the run after delivery and cannot prevent exposure.
+
+A :class:`~shieldcortex.errors.ShieldCortexError` from the scan call (HTTP
+error, timeout) is logged and that scan is skipped. Other exceptions, such as
+connection errors, are not caught: with ``raise_on_block=True`` they stop the
+run, otherwise LangChain logs them.
 
 Install with ``pip install shieldcortex[langchain]``.
 """
@@ -52,7 +62,10 @@ def _chat_texts(messages: list[list[BaseMessage]]) -> list[str]:
                 for block in content:
                     if isinstance(block, str):
                         texts.append(block)
-                    elif isinstance(block, dict) and block.get("type") == "text":
+                    elif isinstance(block, dict) and block.get("type", "text") == "text":
+                        # Typed text blocks and legacy untyped ``{"text": ...}``
+                        # blocks (extra keys allowed). Other block types are
+                        # not text, even when they carry a ``text`` key.
                         value = block.get("text")
                         if isinstance(value, str):
                             texts.append(value)
@@ -103,8 +116,9 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
 
     Scans chain inputs, LLM prompts, chat message text, tool inputs, LLM
     outputs, and string tool outputs. ``raise_on_block=True`` propagates
-    :class:`ContentBlockedError` (a ``ValueError``). Only ``BLOCK`` acts;
-    scan API errors are logged and the run continues.
+    :class:`ContentBlockedError` (a ``ValueError``). Only ``BLOCK`` acts.
+    Streamed output is scanned after delivery; see the module docstring for
+    that and for which scan errors are logged.
     """
 
     def __init__(
@@ -130,14 +144,14 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
         self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
     ) -> None:
         if self.scan_inputs:
-            for prompt in dict.fromkeys(prompts):
+            for prompt in dict.fromkeys(p for p in prompts if p):
                 await self._scan(prompt, "llm_input")
 
     async def on_chat_model_start(
         self, serialized: dict[str, Any], messages: list[list[BaseMessage]], **kwargs: Any
     ) -> None:
         if self.scan_inputs:
-            for content in dict.fromkeys(_chat_texts(messages)):
+            for content in dict.fromkeys(t for t in _chat_texts(messages) if t):
                 await self._scan(content, "chat_input")
 
     async def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
@@ -156,8 +170,6 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
             await self._scan(output, "tool_output")
 
     async def _scan(self, content: str, source_identifier: str) -> None:
-        if not content:
-            return
         try:
             result = await self.client.scan(content, **self._scan_options(source_identifier))
         except ShieldCortexError as exc:
@@ -170,8 +182,9 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
     """Sync LangChain handler for ``invoke`` with the same scanning options.
 
     ``raise_on_block=True`` propagates :class:`ContentBlockedError` (a
-    ``ValueError``). Only ``BLOCK`` acts; scan API errors are logged and the
-    run continues.
+    ``ValueError``). Only ``BLOCK`` acts. Streamed output is scanned after
+    delivery; see the module docstring for that and for which scan errors
+    are logged.
     """
 
     def __init__(
@@ -195,14 +208,14 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
 
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
         if self.scan_inputs:
-            for prompt in dict.fromkeys(prompts):
+            for prompt in dict.fromkeys(p for p in prompts if p):
                 self._scan(prompt, "llm_input")
 
     def on_chat_model_start(
         self, serialized: dict[str, Any], messages: list[list[BaseMessage]], **kwargs: Any
     ) -> None:
         if self.scan_inputs:
-            for content in dict.fromkeys(_chat_texts(messages)):
+            for content in dict.fromkeys(t for t in _chat_texts(messages) if t):
                 self._scan(content, "chat_input")
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
@@ -219,8 +232,6 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
             self._scan(output, "tool_output")
 
     def _scan(self, content: str, source_identifier: str) -> None:
-        if not content:
-            return
         try:
             result = self.client.scan(content, **self._scan_options(source_identifier))
         except ShieldCortexError as exc:

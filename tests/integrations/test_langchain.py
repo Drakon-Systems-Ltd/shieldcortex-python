@@ -174,3 +174,67 @@ async def test_chain_start_blocks() -> None:
                 "prompt", config={"callbacks": [handler]}
             )
     assert exc_info.value.source_identifier == "langchain:chain_input"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_chat_untyped_text_block_with_extra_keys_is_scanned() -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    async with AsyncShieldCortex(api_key="sc_test_abc") as client:
+        handler = ShieldCortexCallbackHandler(client, scan_outputs=False)
+        await FakeListChatModel(responses=["hi"]).ainvoke(
+            [
+                HumanMessage(
+                    content=[
+                        {"text": "legacy", "metadata": {"k": "v"}},
+                        {"type": "image_url", "text": "not text", "image_url": "x"},
+                    ]
+                )
+            ],
+            config={"callbacks": [handler]},
+        )
+    assert [item["content"] for item in scan_requests(route)] == ["legacy"]
+
+
+@respx.mock
+def test_sync_chat_untyped_text_block_with_extra_keys_blocks() -> None:
+    respx.post(f"{BASE}/v1/scan").mock(return_value=httpx.Response(200, json=BLOCKED_RESPONSE))
+    with ShieldCortex(api_key="sc_test_abc") as client:
+        handler = integration.ShieldCortexSyncCallbackHandler(client, raise_on_block=True)
+        with pytest.raises(integration.ContentBlockedError) as exc_info:
+            FakeListChatModel(responses=["hi"]).invoke(
+                [HumanMessage(content=[{"text": "secret", "metadata": {}}])],
+                config={"callbacks": [handler]},
+            )
+    assert exc_info.value.source_identifier == "langchain:chat_input"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_empty_tool_input_and_output_are_still_scanned() -> None:
+    from langchain_core.tools import Tool
+
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    tool = Tool(name="echo", description="echo", func=lambda value: "", coroutine=None)
+    async with AsyncShieldCortex(api_key="sc_test_abc") as client:
+        handler = ShieldCortexCallbackHandler(client)
+        await tool.ainvoke("", config={"callbacks": [handler]})
+    identifiers = [item["source"]["identifier"] for item in scan_requests(route)]
+    assert "langchain:tool_input" in identifiers
+    assert "langchain:tool_output" in identifiers
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_empty_llm_prompt_is_skipped() -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    async with AsyncShieldCortex(api_key="sc_test_abc") as client:
+        handler = ShieldCortexCallbackHandler(client, scan_outputs=False)
+        await FakeListLLM(responses=["hi"]).ainvoke("", config={"callbacks": [handler]})
+    assert scan_requests(route) == []

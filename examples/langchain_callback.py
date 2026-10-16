@@ -2,8 +2,8 @@
 
 Install with ``pip install shieldcortex[langchain]``. The handlers scan chain
 inputs, LLM prompts, text in chat messages, tool inputs, LLM outputs, and
-string tool outputs. Only BLOCK verdicts act; scan API errors are logged and
-the run continues.
+string tool outputs. Only BLOCK verdicts act. Streamed output is scanned
+after the chunks are delivered, so an output block cannot hide them.
 """
 
 import asyncio

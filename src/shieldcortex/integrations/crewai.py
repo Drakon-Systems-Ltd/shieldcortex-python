@@ -1,11 +1,11 @@
-"""CrewAI integration for ShieldCortex memory security scanning.
+"""Framework-agnostic memory guard for ShieldCortex (usable with CrewAI).
 
-Scans all memory writes through the ShieldCortex defence pipeline
-before they reach the underlying memory store.
+Provides a pre-write check you call before saving content to any memory
+store. It does not import or hook into CrewAI; content reaches the
+ShieldCortex scan only when you call :meth:`ShieldCortexMemoryGuard.check`.
 
-Install with::
-
-    pip install shieldcortex[crewai]
+No extra dependencies are required. ``pip install shieldcortex[crewai]``
+only additionally installs CrewAI itself.
 
 Usage::
 
