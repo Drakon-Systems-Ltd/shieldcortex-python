@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Ship a PEP 561 `py.typed` marker so type checkers treat the installed
+  package as typed (the `Typing :: Typed` classifier was already declared).
+- README: describe `ShieldCortexMemoryGuard` as a framework-agnostic
+  pre-write guard (it does not import or hook into CrewAI; the `[crewai]`
+  extra only installs CrewAI itself).
+- README: document the sync client's context manager
+  (`with ShieldCortex(...) as client:`) and `client.close()`.
+
+## 0.3.0 — 2026-08-15
+
+- Version-only release, coordinated with core v4.52.0. No API changes:
+  only the package version (`pyproject.toml`, `_version.py`) changed
+  from 0.2.0.
+
 ## 0.2.0 — 2026-08-11
 
 SDK lockstep release: the Python SDK now covers the full customer surface
