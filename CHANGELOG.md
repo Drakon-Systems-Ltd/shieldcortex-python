@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## 0.4.0 — 2026-10-16
+
+Minor release: the LangChain integration now stops the run on BLOCK, scans
+bare LLM and chat prompts, and adds two public names
+(`ShieldCortexSyncCallbackHandler`, `ContentBlockedError`). No breaking changes.
+
 ### Fixed
 
 - LangChain async blocks now propagate when `raise_on_block=True`.
