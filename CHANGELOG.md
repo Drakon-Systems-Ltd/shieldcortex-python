@@ -2,12 +2,49 @@
 
 ## [Unreleased]
 
+Defaults are unchanged for API errors and QUARANTINE: a `ShieldCortexError`
+from a scan is still logged and skipped, and QUARANTINE still does not act,
+unless you opt in with the new options below.
+
+### Added
+
+- LangChain handlers: `fail_closed` (default `False`). With
+  `raise_on_block=True`, a `ShieldCortexError` from a scan (401, 429, 5xx,
+  timeout, and every other API error) raises `ContentBlockedError` with
+  `result=None` and the original error as `__cause__`, so the run stops
+  (except for sync-only tools under `ainvoke` with the async handler; see
+  Known limitation). `fail_closed=True` without `raise_on_block=True` raises `ValueError` at
+  construction.
+- `ContentBlockedError.result` is now typed `ScanResult | None`. It is only
+  `None` with `fail_closed=True`, so default-option callers never see `None`
+  at runtime, but type checkers will ask them to narrow before reading
+  `error.result.firewall`:
+  `if error.result is not None: print(error.result.firewall.reason)`.
+- LangChain handlers: `block_on_quarantine` (default `False`). When `True`,
+  a QUARANTINE verdict is treated exactly like BLOCK.
+
 ### Fixed
 
+- LangChain `on_tool_end` now scans structured tool outputs (ToolMessage
+  content, content blocks, dicts) instead of skipping them. Non-string
+  outputs are reduced to text (`.content` string, joined text parts of a
+  content-block list, or JSON with a `str()` fallback); non-text blocks in a
+  content list are dropped, not JSON-encoded; `None` and outputs
+  that reduce to empty text are not scanned. String outputs are scanned as
+  before.
 - Path parameters (ids, device UUIDs, export manifest ids) are now
   percent-encoded as a single URL segment, so `/`, `?`, `#`, `%`, spaces and
   non-ASCII characters can no longer change the route. Empty, `.` and `..`
   values raise `ValueError` before any request is sent.
+
+### Known limitation
+
+- With the async handler, a sync-only tool (no coroutine) called through
+  `ainvoke` runs in a worker thread where LangChain logs and swallows every
+  exception the handler raises. Neither BLOCK verdicts nor `fail_closed`
+  scan-error raises stop that tool: it runs and `ainvoke` returns its output.
+  Give the tool an async implementation, or pass the sync handler (with a
+  sync client) for those calls; its exceptions propagate on that route.
 
 ## 0.4.0 — 2026-10-16
 
