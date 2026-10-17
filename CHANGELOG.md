@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Path parameters (ids, device UUIDs, export manifest ids) are now
+  percent-encoded as a single URL segment, so `/`, `?`, `#`, `%`, spaces and
+  non-ASCII characters can no longer change the route. Empty, `.` and `..`
+  values raise `ValueError` before any request is sent.
+
 ## 0.4.0 — 2026-10-16
 
 Minor release: the LangChain integration now stops the run on BLOCK, scans
