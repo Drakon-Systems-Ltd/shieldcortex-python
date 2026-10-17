@@ -25,6 +25,10 @@ unless you opt in with the new options below.
   content-block list, or JSON with a `str()` fallback); `None` and outputs
   that reduce to empty text are not scanned. String outputs are scanned as
   before.
+- Path parameters (ids, device UUIDs, export manifest ids) are now
+  percent-encoded as a single URL segment, so `/`, `?`, `#`, `%`, spaces and
+  non-ASCII characters can no longer change the route. Empty, `.` and `..`
+  values raise `ValueError` before any request is sent.
 
 ## 0.4.0 — 2026-10-16
 
