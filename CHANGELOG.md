@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- README: the introductory LangChain example now narrows
+  `ContentBlockedError.result` before reading `.firewall`, matching the
+  `ScanResult | None` annotation added in 0.5.0, so it passes type checking.
+
 ## 0.5.0 — 2026-10-17
 
 Minor release: opt-in fail-closed and QUARANTINE blocking for the LangChain
