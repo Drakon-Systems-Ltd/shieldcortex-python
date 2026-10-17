@@ -10,6 +10,7 @@ import dataclasses
 import re
 from collections.abc import Callable
 from typing import Any, TypeVar, get_type_hints
+from urllib.parse import quote
 
 import httpx
 
@@ -119,6 +120,24 @@ def serialize_query(obj: Any) -> dict[str, str]:
         param_name = _QUERY_ALIASES.get(f.name, f.name)
         params[param_name] = str(value)
     return params
+
+
+# ── Path parameters ───────────────────────────────────────────────────────────
+
+
+def _seg(value: object) -> str:
+    """Encode a caller-supplied value as exactly one URL path segment.
+
+    Reserved characters (``/``, ``?``, ``#``, ``%``, space, non-ASCII) are
+    percent-encoded. Empty, ``.`` and ``..`` are rejected before any request
+    is sent: URL parsing would otherwise collapse or climb the route.
+    """
+    segment = str(value)
+    if segment == "":
+        raise ValueError("path parameter must not be empty")
+    if segment in (".", ".."):
+        raise ValueError("path parameter must not be '.' or '..'")
+    return quote(segment, safe="")
 
 
 # ── Deserialisation ───────────────────────────────────────────────────────────

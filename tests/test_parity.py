@@ -28,7 +28,9 @@ def _camelise(name: str) -> str:
 def _normalised_source(filename: str) -> str:
     # Normalise Python f-string params (`{manifest_id}` → `{manifestId}`) so
     # the source can be matched against the manifest's placeholder form.
+    # Encoded params (`{_seg(manifest_id)}`) unwrap to the same placeholder.
     source = (_SRC_DIR / filename).read_text()
+    source = re.sub(r"\{_seg\((\w+)\)\}", r"{\1}", source)
     return re.sub(r"\{(\w+)\}", lambda m: "{" + _camelise(m.group(1)) + "}", source)
 
 

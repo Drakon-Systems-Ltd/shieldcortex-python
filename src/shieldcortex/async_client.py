@@ -18,6 +18,7 @@ import httpx
 from shieldcortex._http import (
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT,
+    _seg,
     build_headers,
     deserialize,
     parse_export_headers,
@@ -215,7 +216,7 @@ class AsyncShieldCortex:
 
     async def get_audit_entry(self, id: int) -> AuditEntry:
         """Get a single audit log entry by ID."""
-        return await self._get(f"/v1/audit/{id}", {}, AuditEntry)
+        return await self._get(f"/v1/audit/{_seg(id)}", {}, AuditEntry)
 
     async def get_audit_stats(
         self,
@@ -290,14 +291,14 @@ class AsyncShieldCortex:
 
     async def get_quarantine_item(self, id: int) -> QuarantineItem:
         """Get a single quarantine item (includes full content)."""
-        return await self._get(f"/v1/quarantine/{id}", {}, QuarantineItem)
+        return await self._get(f"/v1/quarantine/{_seg(id)}", {}, QuarantineItem)
 
     async def review_quarantine_item(
         self, id: int, action: Literal["approve", "reject"]
     ) -> ReviewResponse:
         """Approve or reject a quarantined item."""
         return await self._post(
-            f"/v1/quarantine/{id}/review", {"action": action}, ReviewResponse
+            f"/v1/quarantine/{_seg(id)}/review", {"action": action}, ReviewResponse
         )
 
     # ── API Keys ──────────────────────────────────────────────────────────────
@@ -324,7 +325,7 @@ class AsyncShieldCortex:
 
     async def revoke_api_key(self, id: int) -> None:
         """Revoke an API key."""
-        await self._raw_delete(f"/v1/keys/{id}")
+        await self._raw_delete(f"/v1/keys/{_seg(id)}")
 
     # ── Teams ─────────────────────────────────────────────────────────────────
 
@@ -362,11 +363,11 @@ class AsyncShieldCortex:
 
     async def delete_invite(self, id: int) -> None:
         """Revoke a pending team invitation."""
-        await self._raw_delete(f"/v1/invites/{id}")
+        await self._raw_delete(f"/v1/invites/{_seg(id)}")
 
     async def resend_invite(self, id: int) -> None:
         """Resend invitation email."""
-        await self._raw_post(f"/v1/invites/{id}/resend", {})
+        await self._raw_post(f"/v1/invites/{_seg(id)}/resend", {})
 
     # ── Billing ───────────────────────────────────────────────────────────────
 
@@ -424,7 +425,7 @@ class AsyncShieldCortex:
 
     async def update_device(self, uuid: str, name: str) -> None:
         """Rename a device."""
-        await self._raw_patch(f"/v1/devices/{uuid}", {"name": name})
+        await self._raw_patch(f"/v1/devices/{_seg(uuid)}", {"name": name})
 
     async def device_heartbeat(
         self,
@@ -472,11 +473,11 @@ class AsyncShieldCortex:
 
     async def update_alert(self, id: int, **kwargs: Any) -> AlertRule:
         """Update an alert rule. Pass only the fields to change."""
-        return await self._patch(f"/v1/alerts/{id}", kwargs, AlertRule)
+        return await self._patch(f"/v1/alerts/{_seg(id)}", kwargs, AlertRule)
 
     async def delete_alert(self, id: int) -> None:
         """Delete an alert rule."""
-        await self._raw_delete(f"/v1/alerts/{id}")
+        await self._raw_delete(f"/v1/alerts/{_seg(id)}")
 
     # ── Webhooks ──────────────────────────────────────────────────────────────
 
@@ -502,19 +503,19 @@ class AsyncShieldCortex:
 
     async def update_webhook(self, id: int, **kwargs: Any) -> Webhook:
         """Update a webhook. Pass only the fields to change."""
-        return await self._patch(f"/v1/webhooks/{id}", kwargs, Webhook)
+        return await self._patch(f"/v1/webhooks/{_seg(id)}", kwargs, Webhook)
 
     async def delete_webhook(self, id: int) -> None:
         """Delete a webhook."""
-        await self._raw_delete(f"/v1/webhooks/{id}")
+        await self._raw_delete(f"/v1/webhooks/{_seg(id)}")
 
     async def test_webhook(self, id: int) -> TestWebhookResponse:
         """Send a test ping to a webhook."""
-        return await self._post(f"/v1/webhooks/{id}/test", {}, TestWebhookResponse)
+        return await self._post(f"/v1/webhooks/{_seg(id)}/test", {}, TestWebhookResponse)
 
     async def get_webhook_deliveries(self, id: int) -> list[WebhookDelivery]:
         """Get recent deliveries for a webhook."""
-        response = await self._raw_get(f"/v1/webhooks/{id}/deliveries", {})
+        response = await self._raw_get(f"/v1/webhooks/{_seg(id)}/deliveries", {})
         data = response.json()
         items = data.get("deliveries", [])
         return [deserialize(d, WebhookDelivery) for d in items]
@@ -542,12 +543,12 @@ class AsyncShieldCortex:
     async def update_firewall_rule(self, id: int, **kwargs: Any) -> FirewallRule:
         """Update a firewall rule. Pass only the fields to change."""
         return await self._patch(
-            f"/v1/firewall-rules/{id}", kwargs, FirewallRule
+            f"/v1/firewall-rules/{_seg(id)}", kwargs, FirewallRule
         )
 
     async def delete_firewall_rule(self, id: int) -> None:
         """Delete a firewall rule."""
-        await self._raw_delete(f"/v1/firewall-rules/{id}")
+        await self._raw_delete(f"/v1/firewall-rules/{_seg(id)}")
 
     # ── Iron Dome Patterns (Pro+) ────────────────────────────────────────────
 
@@ -589,7 +590,7 @@ class AsyncShieldCortex:
     ) -> InjectionPattern:
         """Update a pattern. Pass only the fields to change."""
         return await self._patch(
-            f"/v1/iron-dome/patterns/{id}", kwargs, InjectionPattern
+            f"/v1/iron-dome/patterns/{_seg(id)}", kwargs, InjectionPattern
         )
 
     async def test_injection_pattern(
@@ -597,14 +598,14 @@ class AsyncShieldCortex:
     ) -> PatternTestResult:
         """Test a pattern against sample text."""
         return await self._post(
-            f"/v1/iron-dome/patterns/{id}/test",
+            f"/v1/iron-dome/patterns/{_seg(id)}/test",
             {"text": text},
             PatternTestResult,
         )
 
     async def delete_injection_pattern(self, id: int) -> None:
         """Delete a custom injection pattern."""
-        await self._raw_delete(f"/v1/iron-dome/patterns/{id}")
+        await self._raw_delete(f"/v1/iron-dome/patterns/{_seg(id)}")
 
     # ── Iron Dome Policies (Pro+) ──────────────────────────────────────────
 
@@ -647,7 +648,7 @@ class AsyncShieldCortex:
     ) -> IronDomePolicy:
         """Update a policy. Pass only the fields to change."""
         return await self._patch(
-            f"/v1/iron-dome/policies/{id}", kwargs, IronDomePolicy
+            f"/v1/iron-dome/policies/{_seg(id)}", kwargs, IronDomePolicy
         )
 
     async def set_default_iron_dome_policy(
@@ -655,13 +656,13 @@ class AsyncShieldCortex:
     ) -> IronDomePolicy:
         """Set a policy as the team default."""
         response = await self._raw_put(
-            f"/v1/iron-dome/policies/{id}/default", {}
+            f"/v1/iron-dome/policies/{_seg(id)}/default", {}
         )
         return deserialize(response.json(), IronDomePolicy)
 
     async def delete_iron_dome_policy(self, id: int) -> None:
         """Delete an Iron Dome policy."""
-        await self._raw_delete(f"/v1/iron-dome/policies/{id}")
+        await self._raw_delete(f"/v1/iron-dome/policies/{_seg(id)}")
 
     # ── Verification (Enterprise) ─────────────────────────────────────────────
 
@@ -730,11 +731,11 @@ class AsyncShieldCortex:
 
     async def get_verification(self, id: int) -> VerificationDetail:
         """Get a single verification by ID (polling target for pending)."""
-        return await self._get(f"/v1/verify/{id}", {}, VerificationDetail)
+        return await self._get(f"/v1/verify/{_seg(id)}", {}, VerificationDetail)
 
     async def delete_verification(self, id: int) -> DeleteVerificationResponse:
         """Delete a verification record (admin scope)."""
-        response = await self._raw_delete(f"/v1/verify/{id}")
+        response = await self._raw_delete(f"/v1/verify/{_seg(id)}")
         return deserialize(response.json(), DeleteVerificationResponse)
 
     # ── Skills ────────────────────────────────────────────────────────────────
@@ -996,7 +997,7 @@ class AsyncShieldCortex:
         check (audit or admin scope). ``verification.signature_valid``
         false signals tampering or signing-secret rotation."""
         return await self._get(
-            f"/v1/audit/exports/{manifest_id}", {}, ExportManifestDetail
+            f"/v1/audit/exports/{_seg(manifest_id)}", {}, ExportManifestDetail
         )
 
     async def verify_audit_export(
@@ -1014,7 +1015,7 @@ class AsyncShieldCortex:
             export_sha256=export_sha256, signature=signature
         )
         return await self._post(
-            f"/v1/audit/exports/{manifest_id}/verify",
+            f"/v1/audit/exports/{_seg(manifest_id)}/verify",
             payload,
             ExportVerifyResponse,
         )
@@ -1031,7 +1032,7 @@ class AsyncShieldCortex:
         (no existence check); the envelope carries NO ``total``."""
         params = export_verifications_params(limit=limit, offset=offset)
         return await self._get(
-            f"/v1/audit/exports/{manifest_id}/verifications",
+            f"/v1/audit/exports/{_seg(manifest_id)}/verifications",
             params,
             ExportVerificationListResponse,
         )

@@ -18,6 +18,7 @@ import httpx
 from shieldcortex._http import (
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT,
+    _seg,
     build_headers,
     deserialize,
     parse_export_headers,
@@ -215,7 +216,7 @@ class ShieldCortex:
 
     def get_audit_entry(self, id: int) -> AuditEntry:
         """Get a single audit log entry by ID."""
-        return self._get(f"/v1/audit/{id}", {}, AuditEntry)
+        return self._get(f"/v1/audit/{_seg(id)}", {}, AuditEntry)
 
     def get_audit_stats(
         self,
@@ -296,14 +297,14 @@ class ShieldCortex:
 
     def get_quarantine_item(self, id: int) -> QuarantineItem:
         """Get a single quarantine item (includes full content)."""
-        return self._get(f"/v1/quarantine/{id}", {}, QuarantineItem)
+        return self._get(f"/v1/quarantine/{_seg(id)}", {}, QuarantineItem)
 
     def review_quarantine_item(
         self, id: int, action: Literal["approve", "reject"]
     ) -> ReviewResponse:
         """Approve or reject a quarantined item."""
         return self._post(
-            f"/v1/quarantine/{id}/review", {"action": action}, ReviewResponse
+            f"/v1/quarantine/{_seg(id)}/review", {"action": action}, ReviewResponse
         )
 
     # ── API Keys ──────────────────────────────────────────────────────────────
@@ -330,7 +331,7 @@ class ShieldCortex:
 
     def revoke_api_key(self, id: int) -> None:
         """Revoke an API key."""
-        self._raw_delete(f"/v1/keys/{id}")
+        self._raw_delete(f"/v1/keys/{_seg(id)}")
 
     # ── Teams ─────────────────────────────────────────────────────────────────
 
@@ -368,11 +369,11 @@ class ShieldCortex:
 
     def delete_invite(self, id: int) -> None:
         """Revoke a pending team invitation."""
-        self._raw_delete(f"/v1/invites/{id}")
+        self._raw_delete(f"/v1/invites/{_seg(id)}")
 
     def resend_invite(self, id: int) -> None:
         """Resend invitation email."""
-        self._raw_post(f"/v1/invites/{id}/resend", {})
+        self._raw_post(f"/v1/invites/{_seg(id)}/resend", {})
 
     # ── Billing ───────────────────────────────────────────────────────────────
 
@@ -430,7 +431,7 @@ class ShieldCortex:
 
     def update_device(self, uuid: str, name: str) -> None:
         """Rename a device."""
-        self._raw_patch(f"/v1/devices/{uuid}", {"name": name})
+        self._raw_patch(f"/v1/devices/{_seg(uuid)}", {"name": name})
 
     def device_heartbeat(
         self,
@@ -478,11 +479,11 @@ class ShieldCortex:
 
     def update_alert(self, id: int, **kwargs: Any) -> AlertRule:
         """Update an alert rule. Pass only the fields to change."""
-        return self._patch(f"/v1/alerts/{id}", kwargs, AlertRule)
+        return self._patch(f"/v1/alerts/{_seg(id)}", kwargs, AlertRule)
 
     def delete_alert(self, id: int) -> None:
         """Delete an alert rule."""
-        self._raw_delete(f"/v1/alerts/{id}")
+        self._raw_delete(f"/v1/alerts/{_seg(id)}")
 
     # ── Webhooks ──────────────────────────────────────────────────────────────
 
@@ -508,19 +509,19 @@ class ShieldCortex:
 
     def update_webhook(self, id: int, **kwargs: Any) -> Webhook:
         """Update a webhook. Pass only the fields to change."""
-        return self._patch(f"/v1/webhooks/{id}", kwargs, Webhook)
+        return self._patch(f"/v1/webhooks/{_seg(id)}", kwargs, Webhook)
 
     def delete_webhook(self, id: int) -> None:
         """Delete a webhook."""
-        self._raw_delete(f"/v1/webhooks/{id}")
+        self._raw_delete(f"/v1/webhooks/{_seg(id)}")
 
     def test_webhook(self, id: int) -> TestWebhookResponse:
         """Send a test ping to a webhook."""
-        return self._post(f"/v1/webhooks/{id}/test", {}, TestWebhookResponse)
+        return self._post(f"/v1/webhooks/{_seg(id)}/test", {}, TestWebhookResponse)
 
     def get_webhook_deliveries(self, id: int) -> list[WebhookDelivery]:
         """Get recent deliveries for a webhook."""
-        response = self._raw_get(f"/v1/webhooks/{id}/deliveries", {})
+        response = self._raw_get(f"/v1/webhooks/{_seg(id)}/deliveries", {})
         data = response.json()
         items = data.get("deliveries", [])
         return [deserialize(d, WebhookDelivery) for d in items]
@@ -548,12 +549,12 @@ class ShieldCortex:
     def update_firewall_rule(self, id: int, **kwargs: Any) -> FirewallRule:
         """Update a firewall rule. Pass only the fields to change."""
         return self._patch(
-            f"/v1/firewall-rules/{id}", kwargs, FirewallRule
+            f"/v1/firewall-rules/{_seg(id)}", kwargs, FirewallRule
         )
 
     def delete_firewall_rule(self, id: int) -> None:
         """Delete a firewall rule."""
-        self._raw_delete(f"/v1/firewall-rules/{id}")
+        self._raw_delete(f"/v1/firewall-rules/{_seg(id)}")
 
     # ── Iron Dome Patterns (Pro+) ────────────────────────────────────────────
 
@@ -595,7 +596,7 @@ class ShieldCortex:
     ) -> InjectionPattern:
         """Update a pattern. Pass only the fields to change."""
         return self._patch(
-            f"/v1/iron-dome/patterns/{id}", kwargs, InjectionPattern
+            f"/v1/iron-dome/patterns/{_seg(id)}", kwargs, InjectionPattern
         )
 
     def test_injection_pattern(
@@ -603,14 +604,14 @@ class ShieldCortex:
     ) -> PatternTestResult:
         """Test a pattern against sample text."""
         return self._post(
-            f"/v1/iron-dome/patterns/{id}/test",
+            f"/v1/iron-dome/patterns/{_seg(id)}/test",
             {"text": text},
             PatternTestResult,
         )
 
     def delete_injection_pattern(self, id: int) -> None:
         """Delete a custom injection pattern."""
-        self._raw_delete(f"/v1/iron-dome/patterns/{id}")
+        self._raw_delete(f"/v1/iron-dome/patterns/{_seg(id)}")
 
     # ── Iron Dome Policies (Pro+) ──────────────────────────────────────────
 
@@ -653,19 +654,19 @@ class ShieldCortex:
     ) -> IronDomePolicy:
         """Update a policy. Pass only the fields to change."""
         return self._patch(
-            f"/v1/iron-dome/policies/{id}", kwargs, IronDomePolicy
+            f"/v1/iron-dome/policies/{_seg(id)}", kwargs, IronDomePolicy
         )
 
     def set_default_iron_dome_policy(self, id: int) -> IronDomePolicy:
         """Set a policy as the team default."""
         response = self._raw_put(
-            f"/v1/iron-dome/policies/{id}/default", {}
+            f"/v1/iron-dome/policies/{_seg(id)}/default", {}
         )
         return deserialize(response.json(), IronDomePolicy)
 
     def delete_iron_dome_policy(self, id: int) -> None:
         """Delete an Iron Dome policy."""
-        self._raw_delete(f"/v1/iron-dome/policies/{id}")
+        self._raw_delete(f"/v1/iron-dome/policies/{_seg(id)}")
 
     # ── Verification (Enterprise) ─────────────────────────────────────────────
 
@@ -734,11 +735,11 @@ class ShieldCortex:
 
     def get_verification(self, id: int) -> VerificationDetail:
         """Get a single verification by ID (polling target for pending)."""
-        return self._get(f"/v1/verify/{id}", {}, VerificationDetail)
+        return self._get(f"/v1/verify/{_seg(id)}", {}, VerificationDetail)
 
     def delete_verification(self, id: int) -> DeleteVerificationResponse:
         """Delete a verification record (admin scope)."""
-        response = self._raw_delete(f"/v1/verify/{id}")
+        response = self._raw_delete(f"/v1/verify/{_seg(id)}")
         return deserialize(response.json(), DeleteVerificationResponse)
 
     # ── Skills ────────────────────────────────────────────────────────────────
@@ -990,7 +991,7 @@ class ShieldCortex:
         check (audit or admin scope). ``verification.signature_valid``
         false signals tampering or signing-secret rotation."""
         return self._get(
-            f"/v1/audit/exports/{manifest_id}", {}, ExportManifestDetail
+            f"/v1/audit/exports/{_seg(manifest_id)}", {}, ExportManifestDetail
         )
 
     def verify_audit_export(
@@ -1008,7 +1009,7 @@ class ShieldCortex:
             export_sha256=export_sha256, signature=signature
         )
         return self._post(
-            f"/v1/audit/exports/{manifest_id}/verify",
+            f"/v1/audit/exports/{_seg(manifest_id)}/verify",
             payload,
             ExportVerifyResponse,
         )
@@ -1025,7 +1026,7 @@ class ShieldCortex:
         (no existence check); the envelope carries NO ``total``."""
         params = export_verifications_params(limit=limit, offset=offset)
         return self._get(
-            f"/v1/audit/exports/{manifest_id}/verifications",
+            f"/v1/audit/exports/{_seg(manifest_id)}/verifications",
             params,
             ExportVerificationListResponse,
         )
