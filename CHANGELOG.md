@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## 0.5.0 — 2026-10-17
+
+Minor release: the LangChain handlers gain two opt-in options,
+`fail_closed` (scan errors stop the run when `raise_on_block=True`) and
+`block_on_quarantine` (QUARANTINE is treated like BLOCK). `on_tool_end` now
+scans structured tool outputs, and client path parameters are
+percent-encoded as a single URL segment, with empty, `.` and `..` values
+rejected before any request is sent. One type-level change:
+`ContentBlockedError.result` is now typed `ScanResult | None`; it is `None`
+at runtime only with `fail_closed=True`, but strict type checkers will ask
+callers to narrow before reading it. Two Known limitations are documented
+below: bare (non-chat) LLM calls served from the LangChain cache are not
+scanned, and with the async handler a sync-only tool under `ainvoke` is not
+stopped by a block or a `fail_closed` raise.
+
+0.4.0 was not tagged in this repository; if you are upgrading from 0.3.x,
+read the 0.4.0 notes below as well.
+
 Defaults are unchanged for API errors and QUARANTINE: a `ShieldCortexError`
 from a scan is still logged and skipped, and QUARANTINE still does not act,
 unless you opt in with the new options below.
