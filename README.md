@@ -134,7 +134,8 @@ async with AsyncShieldCortex(api_key="sc_live_...") as client:
     try:
         reply = await model.ainvoke("Hello", config={"callbacks": [handler]})
     except ContentBlockedError as error:  # also a ValueError
-        print(error.result.firewall.reason, error.source_identifier)
+        if error.result is not None:  # None only with fail_closed=True
+            print(error.result.firewall.reason, error.source_identifier)
 
 with ShieldCortex(api_key="sc_live_...") as client:
     handler = ShieldCortexSyncCallbackHandler(client, raise_on_block=True)
