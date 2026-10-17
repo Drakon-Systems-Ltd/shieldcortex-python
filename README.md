@@ -157,9 +157,18 @@ from `invoke`.
   with string `.content` (such as `ToolMessage`) by that content; a list
   `.content` by its string items and the string `text` of its dict items,
   joined by newlines; anything else as JSON (`default=str`), falling back to
-  `str()`. `None` and non-string outputs that reduce to empty text are not
-  scanned. With the async handler, give tools a coroutine: for sync-only tools
-  under `ainvoke`, LangChain logs and swallows the async handler's block.
+  `str()`. Other blocks in a list `.content`, such as images or dicts without
+  a string `text` (for example `{"payload": "..."}`), are dropped rather than
+  JSON-encoded, so their contents are not scanned. `None` and non-string outputs that reduce
+  to empty text are not scanned.
+- **Sync-only tools under `ainvoke`:** LangChain runs a tool that has no
+  coroutine in a worker thread and logs and swallows every exception the
+  async handler raises there. Neither a `BLOCK` verdict nor a `fail_closed`
+  scan error stops that tool: it runs and `ainvoke` returns its output. Give
+  the tool an async implementation (`coroutine=` on `StructuredTool`, or
+  `_arun`), or pass the sync handler with a sync client for those calls,
+  e.g. `await tool.ainvoke(args, config={"callbacks": [sync_handler]})`; its
+  exceptions do propagate on that route.
 - **Scan errors:** by default a `ShieldCortexError` from the scan call (any
   HTTP error such as 401, 429 or 5xx, or a timeout) is logged and that scan is
   skipped, so the content passes. Other exceptions, such as connection errors,
@@ -170,13 +179,25 @@ Two opt-in options, available on both handlers:
 
 | Option | Default | Effect |
 |---|---|---|
-| `fail_closed` | `False` | With `raise_on_block=True`, a `ShieldCortexError` from a scan raises `ContentBlockedError` instead of being logged and skipped. `error.result` is `None` and `error.__cause__` is the original error. Requires `raise_on_block=True`; otherwise the constructor raises `ValueError`. |
+| `fail_closed` | `False` | With `raise_on_block=True`, a `ShieldCortexError` from a scan raises `ContentBlockedError` instead of being logged and skipped (except for sync-only tools under `ainvoke` with the async handler, see above). `error.result` is `None` and `error.__cause__` is the original error. Requires `raise_on_block=True`; otherwise the constructor raises `ValueError`. |
 | `block_on_quarantine` | `False` | Treat `QUARANTINE` verdicts exactly like `BLOCK` (warn, or raise with `raise_on_block=True`). |
 
 ```python
 handler = ShieldCortexSyncCallbackHandler(
     client, raise_on_block=True, fail_closed=True, block_on_quarantine=True
 )
+```
+
+`ContentBlockedError.result` is typed `ScanResult | None`. Without
+`fail_closed` it is never `None` at runtime, but type checkers will still ask
+you to narrow it before reading `error.result.firewall`:
+
+```python
+except ContentBlockedError as error:
+    if error.result is None:  # fail_closed: the scan itself failed
+        print("scan failed:", error.__cause__)
+    else:
+        print(error.result.firewall.reason)
 ```
 
 ## Audit Logs

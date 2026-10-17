@@ -369,7 +369,7 @@ async def test_quarantine_does_not_raise_by_default(is_sync: bool) -> None:
 def make_tool(output: Any) -> StructuredTool:
     # A coroutine is needed for ``ainvoke`` to fire async callbacks on the event
     # loop. For sync-only tools LangChain runs async handlers through a helper
-    # that logs and swallows their exceptions.
+    # that logs and swallows their exceptions; see the sync-only tests below.
     def lookup(query: str) -> Any:
         return output
 
@@ -465,3 +465,164 @@ def test_tool_output_text_reduction() -> None:
     assert reduce(ToolMessage(content=[{"type": "image", "url": "x"}], tool_call_id="c")) is None
     assert reduce({"a": Unencodable()}) == '{"a": "unencodable"}'
     assert reduce(circular) == str(circular)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_tool_message_non_text_dict_block_is_dropped(is_sync: bool) -> None:
+    # In a ToolMessage's list content only string blocks and string ``text``
+    # fields are scanned; other dict blocks are dropped, not JSON-encoded.
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=BLOCKED_RESPONSE)
+    )
+    message = ToolMessage(content=[{"payload": "AKIA-secret"}], tool_call_id="call-1")
+    result = await invoke(
+        is_sync, make_tool(message), TOOL_CALL, raise_on_block=True, scan_inputs=False
+    )
+    assert result.content == [{"payload": "AKIA-secret"}]
+    assert len(route.calls) == 0
+    route.mock(return_value=httpx.Response(200, json=ALLOWED_RESPONSE))
+    mixed = ToolMessage(
+        content=[{"payload": "AKIA-secret"}, {"type": "text", "text": "visible"}],
+        tool_call_id="call-1",
+    )
+    await invoke(is_sync, make_tool(mixed), TOOL_CALL, scan_inputs=False)
+    # A bare list return is not a ToolMessage yet: LangChain stringifies a
+    # list holding non-content blocks, so that string is scanned.
+    await invoke(is_sync, make_tool([{"payload": "AKIA-secret"}]), TOOL_CALL, scan_inputs=False)
+    assert [item["content"] for item in scan_requests(route)] == [
+        "visible",
+        '[{"payload": "AKIA-secret"}]',
+    ]
+
+
+# --- Sync-only tools under ``ainvoke`` (documented limitation) ---
+
+SYNC_ONLY_SCAN_RESPONSES = {
+    "block": httpx.Response(200, json=BLOCKED_RESPONSE),
+    "fail_closed_503": httpx.Response(503, text="unavailable"),
+}
+
+
+def make_sync_only_tool(calls: list[str]) -> StructuredTool:
+    def lookup(query: str) -> str:
+        calls.append(query)
+        return "tool output"
+
+    return StructuredTool.from_function(lookup, name="lookup", description="lookup")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hook", ["tool_input", "tool_output"])
+@pytest.mark.parametrize("response", list(SYNC_ONLY_SCAN_RESPONSES))
+@respx.mock
+async def test_async_handler_cannot_stop_sync_only_tool_under_ainvoke(
+    hook: str, response: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # LangChain runs a sync-only tool's ``ainvoke`` through ``invoke`` in a
+    # worker thread and logs and swallows the async handler's exceptions. If
+    # this starts failing, LangChain now propagates them: update the docs.
+    route = respx.post(f"{BASE}/v1/scan").mock(return_value=SYNC_ONLY_SCAN_RESPONSES[response])
+    calls: list[str] = []
+    with caplog.at_level(logging.WARNING):
+        result = await invoke(
+            False,
+            make_sync_only_tool(calls),
+            {"query": "q"},
+            raise_on_block=True,
+            fail_closed=True,
+            scan_inputs=hook == "tool_input",
+            scan_outputs=hook == "tool_output",
+        )
+    assert result == "tool output"
+    assert calls == ["q"]
+    assert len(route.calls) == 1
+    assert f"ContentBlockedError('ShieldCortex blocked {hook}" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hook", ["tool_input", "tool_output"])
+@pytest.mark.parametrize("response", list(SYNC_ONLY_SCAN_RESPONSES))
+@respx.mock
+async def test_sync_handler_stops_sync_only_tool_under_ainvoke(hook: str, response: str) -> None:
+    # The documented workaround: the sync handler's exceptions propagate.
+    route = respx.post(f"{BASE}/v1/scan").mock(return_value=SYNC_ONLY_SCAN_RESPONSES[response])
+    calls: list[str] = []
+    tool = make_sync_only_tool(calls)
+    with ShieldCortex(api_key="sc_test_abc") as client:
+        handler = integration.ShieldCortexSyncCallbackHandler(
+            client,
+            raise_on_block=True,
+            fail_closed=True,
+            scan_inputs=hook == "tool_input",
+            scan_outputs=hook == "tool_output",
+        )
+        with pytest.raises(integration.ContentBlockedError) as exc_info:
+            await tool.ainvoke({"query": "q"}, config={"callbacks": [handler]})
+    assert exc_info.value.source_identifier == f"langchain:{hook}"
+    assert (exc_info.value.result is None) == (response == "fail_closed_503")
+    assert calls == ([] if hook == "tool_input" else ["q"])
+    assert len(route.calls) == 1
+
+
+# --- fail_closed across every scanned hook ---
+
+MATRIX_FAILURES: dict[str, Any] = {
+    **SCAN_FAILURES,
+    "429": httpx.Response(429, json={"error": "slow down"}),
+    "base": ShieldCortexError("boom", 0, ""),
+}
+HOOKS: dict[str, Any] = {
+    "chain_input": (lambda: RunnableLambda(lambda value: value), "x", {"scan_outputs": False}),
+    "llm_input": (lambda: FakeListLLM(responses=["hi"]), "prompt", {"scan_outputs": False}),
+    "llm_output": (lambda: FakeListLLM(responses=["hi"]), "prompt", {"scan_inputs": False}),
+    "chat_input": (
+        lambda: FakeListChatModel(responses=["hi"]),
+        "prompt",
+        {"scan_outputs": False},
+    ),
+    "tool_input": (lambda: make_tool("out"), {"query": "q"}, {"scan_outputs": False}),
+    "tool_output": (lambda: make_tool("out"), {"query": "q"}, {"scan_inputs": False}),
+}
+
+
+def mock_matrix_failure(name: str) -> respx.Route:
+    failure = MATRIX_FAILURES[name]
+    route = respx.post(f"{BASE}/v1/scan")
+    if isinstance(failure, Exception):
+        return route.mock(side_effect=failure)
+    return route.mock(return_value=failure)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@pytest.mark.parametrize("failure", list(MATRIX_FAILURES))
+@pytest.mark.parametrize("hook", list(HOOKS))
+@respx.mock
+async def test_fail_closed_matrix(is_sync: bool, failure: str, hook: str) -> None:
+    make_runnable, value, options = HOOKS[hook]
+    route = mock_matrix_failure(failure)
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke(
+            is_sync, make_runnable(), value, raise_on_block=True, fail_closed=True, **options
+        )
+    error = exc_info.value
+    assert error.result is None
+    assert isinstance(error.__cause__, ShieldCortexError)
+    assert error.source_identifier == f"langchain:{hook}"
+    assert len(route.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@pytest.mark.parametrize("hook", list(HOOKS))
+@respx.mock
+async def test_connection_error_propagates_unwrapped(is_sync: bool, hook: str) -> None:
+    make_runnable, value, options = HOOKS[hook]
+    route = respx.post(f"{BASE}/v1/scan").mock(side_effect=httpx.ConnectError("refused"))
+    with pytest.raises(httpx.ConnectError):
+        await invoke(
+            is_sync, make_runnable(), value, raise_on_block=True, fail_closed=True, **options
+        )
+    assert len(route.calls) == 1

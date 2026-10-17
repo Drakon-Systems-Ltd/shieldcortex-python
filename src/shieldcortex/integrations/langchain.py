@@ -9,9 +9,10 @@ blocks, and dict blocks whose ``text`` is a string and whose ``type`` is
 Tool outputs are reduced to text before scanning: a string is scanned as is;
 an object with string ``.content`` (such as a ``ToolMessage``) is scanned by
 that content; a list ``.content`` is scanned as its string items and the
-string ``text`` of its dict items, joined by newlines; anything else is
-JSON-encoded (``default=str``), falling back to ``str()``. ``None``, and
-non-string outputs that reduce to empty text, are not scanned.
+string ``text`` of its dict items, joined by newlines (other blocks, such as
+images or dicts without a string ``text``, are dropped, not JSON-encoded);
+anything else is JSON-encoded (``default=str``), falling back to ``str()``.
+``None``, and non-string outputs that reduce to empty text, are not scanned.
 
 By default only ``BLOCK`` verdicts act. ``block_on_quarantine=True`` treats
 ``QUARANTINE`` the same way. With ``raise_on_block=True``, a block raises
@@ -31,6 +32,13 @@ and ``raise_on_block=True``, such an error instead raises
 would be nothing to stop the run with. Other exceptions, such as connection
 errors, are not caught: with ``raise_on_block=True`` they stop the run,
 otherwise LangChain logs them.
+
+Exception: with the async handler, a tool without a coroutine (a sync-only
+tool) called through ``ainvoke`` runs in a worker thread, and LangChain logs
+and swallows every exception the async handler raises there. Neither a block
+nor a ``fail_closed`` scan error stops that tool: it runs and its output is
+returned. Give such tools a coroutine, or attach the sync handler (with a
+sync client) to those calls; its exceptions do propagate on that route.
 
 Install with ``pip install shieldcortex[langchain]``.
 """
@@ -190,8 +198,9 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
     ``ValueError``). ``BLOCK`` acts; ``block_on_quarantine=True`` (default
     ``False``) makes ``QUARANTINE`` act too. ``fail_closed=True`` (default
     ``False``, requires ``raise_on_block=True``) raises on scan errors instead
-    of logging and skipping them. Streamed output is scanned after delivery;
-    see the module docstring for that and for the reduction rules.
+    of logging and skipping them. Streamed output is scanned after delivery,
+    and nothing this handler raises stops a sync-only tool under ``ainvoke``;
+    see the module docstring for both and for the reduction rules.
     """
 
     def __init__(
