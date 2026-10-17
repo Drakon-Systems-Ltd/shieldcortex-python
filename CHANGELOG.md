@@ -39,6 +39,15 @@ unless you opt in with the new options below.
 
 ### Known limitation
 
+- LangChain answers a bare (non-chat) LLM call that is fully served from its
+  LLM cache without firing `on_llm_start` or `on_llm_end`, so neither the
+  prompt nor the cached output is scanned and no block can stop that call.
+  The 0.4.0 bare-LLM prompt scanning applies only to calls that reach the
+  model. Set `cache=False` on LLMs whose calls must be scanned (the default,
+  `cache=None`, uses any cache set with `set_llm_cache`), or scan outside the
+  model call. Chat models fire their start callback before the cache lookup,
+  so cached chat calls still have their input scanned. Regression tests pin
+  this behaviour.
 - With the async handler, a sync-only tool (no coroutine) called through
   `ainvoke` runs in a worker thread where LangChain logs and swallows every
   exception the handler raises. Neither BLOCK verdicts nor `fail_closed`
