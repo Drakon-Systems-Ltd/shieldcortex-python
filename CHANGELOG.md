@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## 0.5.0 — 2026-10-17
+
+Minor release: opt-in fail-closed and QUARANTINE blocking for the LangChain
+handlers, structured tool outputs scanned, and path parameters URL-encoded.
+0.4.0 was never tagged or published, so this is the first published release
+after 0.3.0 and also carries every 0.4.0 change listed below.
+
 Defaults are unchanged for API errors and QUARANTINE: a `ShieldCortexError`
 from a scan is still logged and skipped, and QUARANTINE still does not act,
 unless you opt in with the new options below.
