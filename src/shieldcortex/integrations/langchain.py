@@ -33,6 +33,15 @@ would be nothing to stop the run with. Other exceptions, such as connection
 errors, are not caught: with ``raise_on_block=True`` they stop the run,
 otherwise LangChain logs them.
 
+LLM cache: LangChain answers a bare (non-chat) LLM call that is served
+entirely from its LLM cache without firing ``on_llm_start`` or
+``on_llm_end``, so neither the prompt nor the cached output is scanned and no
+block can stop that call. Set ``cache=False`` on LLMs whose calls must be
+scanned (the default, ``cache=None``, uses any cache set with
+``set_llm_cache``), or scan outside the model call. Chat models fire
+``on_chat_model_start`` before their cache lookup, so a cached chat call still
+has its input scanned.
+
 Exception: with the async handler, a tool without a coroutine (a sync-only
 tool) called through ``ainvoke`` runs in a worker thread, and LangChain logs
 and swallows every exception the async handler raises there. Neither a block

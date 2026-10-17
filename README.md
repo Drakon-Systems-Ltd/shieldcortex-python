@@ -114,8 +114,9 @@ except MemoryBlockedError as e:
 ## LangChain Integration
 
 The callbacks scan chain inputs, LLM prompts, text in chat messages, tool inputs,
-LLM outputs, and tool outputs. Use the async handler for `ainvoke` and
-`astream`, or the sync handler for `invoke`:
+LLM outputs, and tool outputs, whenever LangChain fires the matching callback
+(see **LLM cache** below for a case where it does not). Use the async handler
+for `ainvoke` and `astream`, or the sync handler for `invoke`:
 
 ```python
 from langchain_openai import ChatOpenAI  # or any LangChain chat model / LLM
@@ -161,6 +162,15 @@ from `invoke`.
   a string `text` (for example `{"payload": "..."}`), are dropped rather than
   JSON-encoded, so their contents are not scanned. `None` and non-string outputs that reduce
   to empty text are not scanned.
+- **LLM cache:** a bare (non-chat) LLM call answered entirely from a
+  LangChain LLM cache fires no callbacks: LangChain checks the cache before
+  `on_llm_start` and returns the cached text without `on_llm_end`. Neither
+  the prompt nor the cached output is scanned, and no block or `fail_closed`
+  error can stop that call. Set `cache=False` on LLMs whose calls must be
+  scanned (the default, `cache=None`, uses any cache set with
+  `set_llm_cache`), or scan outside the model call. Chat models fire
+  `on_chat_model_start` before their cache lookup, so a cached chat call
+  still has its input scanned.
 - **Sync-only tools under `ainvoke`:** LangChain runs a tool that has no
   coroutine in a worker thread and logs and swallows every exception the
   async handler raises there. Neither a `BLOCK` verdict nor a `fail_closed`

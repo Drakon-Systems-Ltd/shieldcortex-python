@@ -626,3 +626,88 @@ async def test_connection_error_propagates_unwrapped(is_sync: bool, hook: str) -
             is_sync, make_runnable(), value, raise_on_block=True, fail_closed=True, **options
         )
     assert len(route.calls) == 1
+
+
+# --- LLM cache hits (documented limitation) ---
+
+
+async def invoke_twice(
+    is_sync: bool, runnable: Any, route: respx.Route, first_scans: list[str]
+) -> Any:
+    """Invoke ``runnable`` twice with one handler; the second call sees BLOCK.
+
+    The first call's scan identifiers are appended to ``first_scans`` and the
+    route's call log is then cleared, so ``route.calls`` holds only the second
+    call's scans.
+    """
+    if is_sync:
+        with ShieldCortex(api_key="sc_test_abc") as client:
+            handler = integration.ShieldCortexSyncCallbackHandler(client, raise_on_block=True)
+            runnable.invoke("prompt", config={"callbacks": [handler]})
+            first_scans.extend(item["source"]["identifier"] for item in scan_requests(route))
+            route.mock(return_value=httpx.Response(200, json=BLOCKED_RESPONSE))
+            route.reset()
+            return runnable.invoke("prompt", config={"callbacks": [handler]})
+    async with AsyncShieldCortex(api_key="sc_test_abc") as aclient:
+        ahandler = ShieldCortexCallbackHandler(aclient, raise_on_block=True)
+        await runnable.ainvoke("prompt", config={"callbacks": [ahandler]})
+        first_scans.extend(item["source"]["identifier"] for item in scan_requests(route))
+        route.mock(return_value=httpx.Response(200, json=BLOCKED_RESPONSE))
+        route.reset()
+        return await runnable.ainvoke("prompt", config={"callbacks": [ahandler]})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_bare_llm_cache_hit_is_not_scanned(is_sync: bool) -> None:
+    # LangChain answers a full LLM cache hit without firing on_llm_start or
+    # on_llm_end, so neither the prompt nor the cached output is scanned. If
+    # this starts failing, LangChain now fires callbacks on cache hits: update
+    # the docs.
+    from langchain_core.caches import InMemoryCache
+
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    llm = FakeListLLM(responses=["cached reply"], cache=InMemoryCache())
+    first_scans: list[str] = []
+    result = await invoke_twice(is_sync, llm, route, first_scans)
+    assert first_scans == ["langchain:llm_input", "langchain:llm_output"]
+    assert result == "cached reply"
+    assert len(route.calls) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_bare_llm_without_cache_rescans_and_blocks(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    llm = FakeListLLM(responses=["reply", "reply"], cache=False)
+    first_scans: list[str] = []
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke_twice(is_sync, llm, route, first_scans)
+    assert first_scans == ["langchain:llm_input", "langchain:llm_output"]
+    assert exc_info.value.source_identifier == "langchain:llm_input"
+    assert len(route.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_chat_model_cache_hit_still_scans_input(is_sync: bool) -> None:
+    # Chat models fire on_chat_model_start before the cache lookup.
+    from langchain_core.caches import InMemoryCache
+
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    chat = FakeListChatModel(responses=["cached reply"], cache=InMemoryCache())
+    first_scans: list[str] = []
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke_twice(is_sync, chat, route, first_scans)
+    assert first_scans == ["langchain:chat_input", "langchain:llm_output"]
+    assert exc_info.value.source_identifier == "langchain:chat_input"
+    assert len(route.calls) == 1
