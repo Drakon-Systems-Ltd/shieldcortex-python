@@ -2,25 +2,42 @@
 
 The async handler is for ``ainvoke``/``astream``; the sync handler is for
 ``invoke``. They scan chain inputs, LLM prompts, chat message text, tool inputs,
-LLM outputs, and string tool outputs. Chat message text means string content,
-string blocks, and dict blocks whose ``text`` is a string and whose ``type`` is
-``"text"`` or absent. Only ``BLOCK`` verdicts act today. With
-``raise_on_block=True``, a block raises :class:`ContentBlockedError`.
+LLM outputs, and tool outputs. Chat message text means string content, string
+blocks, and dict blocks whose ``text`` is a string and whose ``type`` is
+``"text"`` or absent.
+
+Tool outputs are reduced to text before scanning: a string is scanned as is;
+an object with string ``.content`` (such as a ``ToolMessage``) is scanned by
+that content; a list ``.content`` is scanned as its string items and the
+string ``text`` of its dict items, joined by newlines; anything else is
+JSON-encoded (``default=str``), falling back to ``str()``. ``None``, and
+non-string outputs that reduce to empty text, are not scanned.
+
+By default only ``BLOCK`` verdicts act. ``block_on_quarantine=True`` treats
+``QUARANTINE`` the same way. With ``raise_on_block=True``, a block raises
+:class:`ContentBlockedError`; otherwise it is logged as a warning.
 
 LLM output is scanned in ``on_llm_end``, after the model finishes. With
 ``stream``/``astream`` every chunk has already reached the caller by then, so
 an output block stops the run after delivery and cannot prevent exposure.
 
-A :class:`~shieldcortex.errors.ShieldCortexError` from the scan call (HTTP
-error, timeout) is logged and that scan is skipped. Other exceptions, such as
-connection errors, are not caught: with ``raise_on_block=True`` they stop the
-run, otherwise LangChain logs them.
+By default a :class:`~shieldcortex.errors.ShieldCortexError` from the scan
+call (any HTTP error such as 401, 429 or 5xx, or a timeout) is logged and that
+scan is skipped, so the content passes (fail open). With ``fail_closed=True``
+and ``raise_on_block=True``, such an error instead raises
+:class:`ContentBlockedError` with ``result=None`` and the original error as
+``__cause__``, stopping the run. ``fail_closed=True`` without
+``raise_on_block=True`` raises ``ValueError`` at construction, because there
+would be nothing to stop the run with. Other exceptions, such as connection
+errors, are not caught: with ``raise_on_block=True`` they stop the run,
+otherwise LangChain logs them.
 
 Install with ``pip install shieldcortex[langchain]``.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Literal
 
@@ -43,12 +60,22 @@ Mode = Literal["strict", "balanced", "permissive"]
 
 
 class ContentBlockedError(ValueError):
-    """A ``BLOCK`` verdict, with the scan result and source identifier."""
+    """Blocked content, with the scan result and source identifier.
 
-    def __init__(self, result: ScanResult, source_identifier: str) -> None:
+    Raised for a ``BLOCK`` verdict (or ``QUARANTINE`` with
+    ``block_on_quarantine=True``). With ``fail_closed=True`` it is also raised
+    when the scan itself fails: then ``result`` is ``None`` and the
+    :class:`~shieldcortex.errors.ShieldCortexError` is the ``__cause__``.
+    """
+
+    def __init__(
+        self, result: ScanResult | None, source_identifier: str, reason: str | None = None
+    ) -> None:
         self.result = result
         self.source_identifier = f"langchain:{source_identifier}"
-        super().__init__(f"ShieldCortex blocked {source_identifier}: {result.firewall.reason}")
+        if reason is None:
+            reason = result.firewall.reason if result is not None else "scan failed"
+        super().__init__(f"ShieldCortex blocked {source_identifier}: {reason}")
 
 
 def _chat_texts(messages: list[list[BaseMessage]]) -> list[str]:
@@ -72,6 +99,31 @@ def _chat_texts(messages: list[list[BaseMessage]]) -> list[str]:
     return texts
 
 
+def _tool_output_text(output: Any) -> str | None:
+    """Reduce a tool output to the text to scan, or ``None`` to skip it."""
+    if output is None:
+        return None
+    if isinstance(output, str):
+        return output
+    content = getattr(output, "content", None)
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        text = "\n".join(part for part in parts if part)
+    else:
+        try:
+            text = json.dumps(output, default=str)
+        except (TypeError, ValueError):
+            text = str(output)
+    return text or None
+
+
 def _output_texts(response: LLMResult) -> list[str]:
     return [
         generation.text for group in response.generations for generation in group if generation.text
@@ -85,15 +137,27 @@ class _ScanLogic:
     scan_inputs: bool
     scan_outputs: bool
     raise_on_block: bool
+    fail_closed: bool
+    block_on_quarantine: bool
     audit_ids: list[int]
 
     def _configure(
-        self, mode: Mode, scan_inputs: bool, scan_outputs: bool, raise_on_block: bool
+        self,
+        mode: Mode,
+        scan_inputs: bool,
+        scan_outputs: bool,
+        raise_on_block: bool,
+        fail_closed: bool = False,
+        block_on_quarantine: bool = False,
     ) -> None:
+        if fail_closed and not raise_on_block:
+            raise ValueError("fail_closed=True requires raise_on_block=True")
         self.mode = mode
         self.scan_inputs = scan_inputs
         self.scan_outputs = scan_outputs
         self.raise_on_block = raise_on_block
+        self.fail_closed = fail_closed
+        self.block_on_quarantine = block_on_quarantine
         self.audit_ids = []
 
     def _scan_options(self, source_identifier: str) -> dict[str, Any]:
@@ -102,9 +166,15 @@ class _ScanLogic:
             "config": ScanConfig(mode=self.mode),
         }
 
+    def _handle_error(self, exc: ShieldCortexError, source_identifier: str) -> None:
+        if self.fail_closed:
+            raise ContentBlockedError(None, source_identifier, f"scan failed: {exc}") from exc
+        logger.warning("ShieldCortex scan error: %s", exc)
+
     def _handle_result(self, result: ScanResult, source_identifier: str) -> None:
         self.audit_ids.append(result.audit_id)
-        if result.firewall.result == "BLOCK":
+        verdict = result.firewall.result
+        if verdict == "BLOCK" or (verdict == "QUARANTINE" and self.block_on_quarantine):
             error = ContentBlockedError(result, source_identifier)
             if self.raise_on_block:
                 raise error
@@ -115,10 +185,13 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
     """Async LangChain handler for ``ainvoke`` and ``astream``.
 
     Scans chain inputs, LLM prompts, chat message text, tool inputs, LLM
-    outputs, and string tool outputs. ``raise_on_block=True`` propagates
-    :class:`ContentBlockedError` (a ``ValueError``). Only ``BLOCK`` acts.
-    Streamed output is scanned after delivery; see the module docstring for
-    that and for which scan errors are logged.
+    outputs, and tool outputs (structured outputs are reduced to text).
+    ``raise_on_block=True`` propagates :class:`ContentBlockedError` (a
+    ``ValueError``). ``BLOCK`` acts; ``block_on_quarantine=True`` (default
+    ``False``) makes ``QUARANTINE`` act too. ``fail_closed=True`` (default
+    ``False``, requires ``raise_on_block=True``) raises on scan errors instead
+    of logging and skipping them. Streamed output is scanned after delivery;
+    see the module docstring for that and for the reduction rules.
     """
 
     def __init__(
@@ -129,9 +202,13 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
         scan_inputs: bool = True,
         scan_outputs: bool = True,
         raise_on_block: bool = False,
+        fail_closed: bool = False,
+        block_on_quarantine: bool = False,
     ) -> None:
         self.client = client
-        self._configure(mode, scan_inputs, scan_outputs, raise_on_block)
+        self._configure(
+            mode, scan_inputs, scan_outputs, raise_on_block, fail_closed, block_on_quarantine
+        )
         self.raise_error = raise_on_block
 
     async def on_chain_start(
@@ -166,14 +243,16 @@ class ShieldCortexCallbackHandler(_ScanLogic, AsyncCallbackHandler):
             await self._scan(input_str, "tool_input")
 
     async def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        if self.scan_outputs and isinstance(output, str):
-            await self._scan(output, "tool_output")
+        if self.scan_outputs:
+            text = _tool_output_text(output)
+            if text is not None:
+                await self._scan(text, "tool_output")
 
     async def _scan(self, content: str, source_identifier: str) -> None:
         try:
             result = await self.client.scan(content, **self._scan_options(source_identifier))
         except ShieldCortexError as exc:
-            logger.warning("ShieldCortex scan error: %s", exc)
+            self._handle_error(exc, source_identifier)
             return
         self._handle_result(result, source_identifier)
 
@@ -182,9 +261,11 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
     """Sync LangChain handler for ``invoke`` with the same scanning options.
 
     ``raise_on_block=True`` propagates :class:`ContentBlockedError` (a
-    ``ValueError``). Only ``BLOCK`` acts. Streamed output is scanned after
-    delivery; see the module docstring for that and for which scan errors
-    are logged.
+    ``ValueError``). ``BLOCK`` acts; ``block_on_quarantine=True`` (default
+    ``False``) makes ``QUARANTINE`` act too. ``fail_closed=True`` (default
+    ``False``, requires ``raise_on_block=True``) raises on scan errors instead
+    of logging and skipping them. Streamed output is scanned after delivery;
+    see the module docstring for that and for the reduction rules.
     """
 
     def __init__(
@@ -195,9 +276,13 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
         scan_inputs: bool = True,
         scan_outputs: bool = True,
         raise_on_block: bool = False,
+        fail_closed: bool = False,
+        block_on_quarantine: bool = False,
     ) -> None:
         self.client = client
-        self._configure(mode, scan_inputs, scan_outputs, raise_on_block)
+        self._configure(
+            mode, scan_inputs, scan_outputs, raise_on_block, fail_closed, block_on_quarantine
+        )
         self.raise_error = raise_on_block
 
     def on_chain_start(
@@ -228,13 +313,15 @@ class ShieldCortexSyncCallbackHandler(_ScanLogic, BaseCallbackHandler):
             self._scan(input_str, "tool_input")
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        if self.scan_outputs and isinstance(output, str):
-            self._scan(output, "tool_output")
+        if self.scan_outputs:
+            text = _tool_output_text(output)
+            if text is not None:
+                self._scan(text, "tool_output")
 
     def _scan(self, content: str, source_identifier: str) -> None:
         try:
             result = self.client.scan(content, **self._scan_options(source_identifier))
         except ShieldCortexError as exc:
-            logger.warning("ShieldCortex scan error: %s", exc)
+            self._handle_error(exc, source_identifier)
             return
         self._handle_result(result, source_identifier)

@@ -114,7 +114,7 @@ except MemoryBlockedError as e:
 ## LangChain Integration
 
 The callbacks scan chain inputs, LLM prompts, text in chat messages, tool inputs,
-LLM outputs, and string tool outputs. Use the async handler for `ainvoke` and
+LLM outputs, and tool outputs. Use the async handler for `ainvoke` and
 `astream`, or the sync handler for `invoke`:
 
 ```python
@@ -140,8 +140,8 @@ with ShieldCortex(api_key="sc_live_...") as client:
     reply = model.invoke("Hello", config={"callbacks": [handler]})
 ```
 
-Only `BLOCK` verdicts act today. With `raise_on_block=True`, a block stops the
-run with `ContentBlockedError`; otherwise it logs a warning. Use the matching
+By default only `BLOCK` verdicts act. With `raise_on_block=True`, a block stops
+the run with `ContentBlockedError`; otherwise it logs a warning. Use the matching
 handler for the call mode: LangChain cannot propagate an async handler's block
 from `invoke`.
 
@@ -153,10 +153,31 @@ from `invoke`.
   output block stops the run after delivery and cannot prevent exposure.
   Buffer the stream yourself if blocked output must never be shown. Input
   scans still run before the model starts.
-- **Scan errors:** a `ShieldCortexError` from the scan call (HTTP error,
-  timeout) is logged and that scan is skipped. Other exceptions, such as
-  connection errors, are not caught: with `raise_on_block=True` they stop the
-  run, otherwise LangChain logs them.
+- **Tool outputs** are reduced to text before scanning: strings as is; objects
+  with string `.content` (such as `ToolMessage`) by that content; a list
+  `.content` by its string items and the string `text` of its dict items,
+  joined by newlines; anything else as JSON (`default=str`), falling back to
+  `str()`. `None` and non-string outputs that reduce to empty text are not
+  scanned. With the async handler, give tools a coroutine: for sync-only tools
+  under `ainvoke`, LangChain logs and swallows the async handler's block.
+- **Scan errors:** by default a `ShieldCortexError` from the scan call (any
+  HTTP error such as 401, 429 or 5xx, or a timeout) is logged and that scan is
+  skipped, so the content passes. Other exceptions, such as connection errors,
+  are not caught: with `raise_on_block=True` they stop the run, otherwise
+  LangChain logs them.
+
+Two opt-in options, available on both handlers:
+
+| Option | Default | Effect |
+|---|---|---|
+| `fail_closed` | `False` | With `raise_on_block=True`, a `ShieldCortexError` from a scan raises `ContentBlockedError` instead of being logged and skipped. `error.result` is `None` and `error.__cause__` is the original error. Requires `raise_on_block=True`; otherwise the constructor raises `ValueError`. |
+| `block_on_quarantine` | `False` | Treat `QUARANTINE` verdicts exactly like `BLOCK` (warn, or raise with `raise_on_block=True`). |
+
+```python
+handler = ShieldCortexSyncCallbackHandler(
+    client, raise_on_block=True, fail_closed=True, block_on_quarantine=True
+)
+```
 
 ## Audit Logs
 

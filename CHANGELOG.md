@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+Defaults are unchanged for API errors and QUARANTINE: a `ShieldCortexError`
+from a scan is still logged and skipped, and QUARANTINE still does not act,
+unless you opt in with the new options below.
+
+### Added
+
+- LangChain handlers: `fail_closed` (default `False`). With
+  `raise_on_block=True`, a `ShieldCortexError` from a scan (401, 429, 5xx,
+  timeout, and every other API error) raises `ContentBlockedError` with
+  `result=None` and the original error as `__cause__`, so the run stops.
+  `fail_closed=True` without `raise_on_block=True` raises `ValueError` at
+  construction. `ContentBlockedError.result` is now typed `ScanResult | None`.
+- LangChain handlers: `block_on_quarantine` (default `False`). When `True`,
+  a QUARANTINE verdict is treated exactly like BLOCK.
+
+### Fixed
+
+- LangChain `on_tool_end` now scans structured tool outputs (ToolMessage
+  content, content blocks, dicts) instead of skipping them. Non-string
+  outputs are reduced to text (`.content` string, joined text parts of a
+  content-block list, or JSON with a `str()` fallback); `None` and outputs
+  that reduce to empty text are not scanned. String outputs are scanned as
+  before.
+
 ## 0.4.0 — 2026-10-16
 
 Minor release: the LangChain integration now stops the run on BLOCK, scans

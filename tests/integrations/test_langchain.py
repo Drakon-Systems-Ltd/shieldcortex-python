@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import httpx
 import pytest
 import respx
 from langchain_core.language_models.fake import FakeListLLM
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
+from langchain_core.tools import StructuredTool
 
 from shieldcortex import AsyncShieldCortex, ShieldCortex
+from shieldcortex.errors import AuthError, ShieldCortexError
 from shieldcortex.integrations import langchain as integration
 
 ShieldCortexCallbackHandler = integration.ShieldCortexCallbackHandler
@@ -238,3 +241,227 @@ async def test_empty_llm_prompt_is_skipped() -> None:
         handler = ShieldCortexCallbackHandler(client, scan_outputs=False)
         await FakeListLLM(responses=["hi"]).ainvoke("", config={"callbacks": [handler]})
     assert scan_requests(route) == []
+
+
+# --- fail_closed, block_on_quarantine and structured tool outputs (#7) ---
+
+QUARANTINE_RESPONSE = {
+    **BLOCKED_RESPONSE,
+    "firewall": {**BLOCKED_RESPONSE["firewall"], "result": "QUARANTINE"},  # type: ignore[dict-item]
+    "auditId": 3,
+}
+SCAN_FAILURES = {
+    "401": httpx.Response(401, json={"error": "bad key"}),
+    "503": httpx.Response(503, text="unavailable"),
+    "timeout": httpx.ReadTimeout("timed out"),
+}
+
+
+async def invoke(is_sync: bool, runnable: Any, value: Any, **options: Any) -> Any:
+    """Invoke ``runnable`` with the sync or async handler built from ``options``."""
+    if is_sync:
+        with ShieldCortex(api_key="sc_test_abc") as client:
+            handler = integration.ShieldCortexSyncCallbackHandler(client, **options)
+            return runnable.invoke(value, config={"callbacks": [handler]})
+    async with AsyncShieldCortex(api_key="sc_test_abc") as aclient:
+        ahandler = ShieldCortexCallbackHandler(aclient, **options)
+        return await runnable.ainvoke(value, config={"callbacks": [ahandler]})
+
+
+def mock_failure(name: str) -> respx.Route:
+    failure = SCAN_FAILURES[name]
+    route = respx.post(f"{BASE}/v1/scan")
+    if isinstance(failure, Exception):
+        return route.mock(side_effect=failure)
+    return route.mock(return_value=failure)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@pytest.mark.parametrize("failure", list(SCAN_FAILURES))
+@respx.mock
+async def test_fail_closed_raises_on_scan_error(is_sync: bool, failure: str) -> None:
+    route = mock_failure(failure)
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke(
+            is_sync,
+            FakeListChatModel(responses=["hi"]),
+            "prompt",
+            raise_on_block=True,
+            fail_closed=True,
+        )
+    error = exc_info.value
+    assert isinstance(error.__cause__, ShieldCortexError)
+    assert error.result is None
+    assert error.source_identifier == "langchain:chat_input"
+    assert "scan failed" in str(error)
+    if failure == "401":
+        assert isinstance(error.__cause__, AuthError)
+    elif failure == "503":
+        assert error.__cause__.status_code == 503
+    assert len(route.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@pytest.mark.parametrize("failure", list(SCAN_FAILURES))
+@respx.mock
+async def test_scan_error_fails_open_by_default(
+    is_sync: bool, failure: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    route = mock_failure(failure)
+    with caplog.at_level(logging.WARNING, logger="shieldcortex.langchain"):
+        result = await invoke(
+            is_sync, FakeListChatModel(responses=["hi"]), "prompt", raise_on_block=True
+        )
+    assert result.content == "hi"
+    assert "ShieldCortex scan error" in caplog.text
+    assert [item["source"]["identifier"] for item in scan_requests(route)] == [
+        "langchain:chat_input",
+        "langchain:llm_output",
+    ]
+
+
+@pytest.mark.parametrize(
+    "handler_class",
+    [ShieldCortexCallbackHandler, integration.ShieldCortexSyncCallbackHandler],
+    ids=["async", "sync"],
+)
+def test_fail_closed_requires_raise_on_block(handler_class: Any) -> None:
+    with pytest.raises(ValueError, match="fail_closed=True requires raise_on_block=True"):
+        handler_class(object(), fail_closed=True)
+    with pytest.raises(ValueError):
+        handler_class(object(), fail_closed=True, raise_on_block=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_block_on_quarantine_raises(is_sync: bool) -> None:
+    respx.post(f"{BASE}/v1/scan").mock(return_value=httpx.Response(200, json=QUARANTINE_RESPONSE))
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke(
+            is_sync,
+            FakeListChatModel(responses=["hi"]),
+            "prompt",
+            raise_on_block=True,
+            block_on_quarantine=True,
+        )
+    assert exc_info.value.result is not None
+    assert exc_info.value.result.firewall.result == "QUARANTINE"
+    assert exc_info.value.__cause__ is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_quarantine_does_not_raise_by_default(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=QUARANTINE_RESPONSE)
+    )
+    result = await invoke(
+        is_sync, FakeListChatModel(responses=["hi"]), "prompt", raise_on_block=True
+    )
+    assert result.content == "hi"
+    assert len(route.calls) == 2
+
+
+def make_tool(output: Any) -> StructuredTool:
+    # A coroutine is needed for ``ainvoke`` to fire async callbacks on the event
+    # loop. For sync-only tools LangChain runs async handlers through a helper
+    # that logs and swallows their exceptions.
+    def lookup(query: str) -> Any:
+        return output
+
+    async def alookup(query: str) -> Any:
+        return output
+
+    return StructuredTool.from_function(
+        lookup, coroutine=alookup, name="lookup", description="lookup"
+    )
+
+
+TOOL_CALL = {"name": "lookup", "args": {"query": "q"}, "id": "call-1", "type": "tool_call"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_tool_message_output_is_scanned_and_blocks(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=BLOCKED_RESPONSE)
+    )
+    with pytest.raises(integration.ContentBlockedError) as exc_info:
+        await invoke(
+            is_sync,
+            make_tool("AKIA-secret"),
+            TOOL_CALL,
+            raise_on_block=True,
+            scan_inputs=False,
+        )
+    assert exc_info.value.source_identifier == "langchain:tool_output"
+    assert [item["content"] for item in scan_requests(route)] == ["AKIA-secret"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_tool_message_content_blocks_are_joined(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=ALLOWED_RESPONSE)
+    )
+    blocks = [{"type": "text", "text": "first"}, "second", {"type": "image", "url": "x"}]
+    result = await invoke(is_sync, make_tool(blocks), TOOL_CALL, scan_inputs=False)
+    assert isinstance(result, ToolMessage)
+    assert [item["content"] for item in scan_requests(route)] == ["first\nsecond"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_dict_tool_output_is_scanned_as_json(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=BLOCKED_RESPONSE)
+    )
+    with pytest.raises(integration.ContentBlockedError):
+        await invoke(
+            is_sync,
+            make_tool({"key": "AKIA-secret", "n": 1}),
+            {"query": "q"},
+            raise_on_block=True,
+            scan_inputs=False,
+        )
+    assert [item["content"] for item in scan_requests(route)] == [
+        json.dumps({"key": "AKIA-secret", "n": 1})
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_sync", [False, True], ids=["async", "sync"])
+@respx.mock
+async def test_none_tool_output_is_not_scanned(is_sync: bool) -> None:
+    route = respx.post(f"{BASE}/v1/scan").mock(
+        return_value=httpx.Response(200, json=BLOCKED_RESPONSE)
+    )
+    await invoke(
+        is_sync, make_tool(None), {"query": "q"}, raise_on_block=True, scan_inputs=False
+    )
+    assert len(route.calls) == 0
+
+
+def test_tool_output_text_reduction() -> None:
+    reduce = integration._tool_output_text
+
+    class Unencodable:
+        def __str__(self) -> str:
+            return "unencodable"
+
+    circular: list[Any] = []
+    circular.append(circular)
+    assert reduce(None) is None
+    assert reduce("") == ""
+    assert reduce("plain") == "plain"
+    assert reduce(ToolMessage(content="", tool_call_id="c")) is None
+    assert reduce(ToolMessage(content=[{"type": "image", "url": "x"}], tool_call_id="c")) is None
+    assert reduce({"a": Unencodable()}) == '{"a": "unencodable"}'
+    assert reduce(circular) == str(circular)
