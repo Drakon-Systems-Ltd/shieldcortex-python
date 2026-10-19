@@ -7,6 +7,9 @@
 - README: the introductory LangChain example now narrows
   `ContentBlockedError.result` before reading `.firewall`, matching the
   `ScanResult | None` annotation added in 0.5.0, so it passes type checking.
+- README: the License badge and the Examples link now use absolute GitHub
+  URLs. The README is also the PyPI project description, where repo-relative
+  links do not resolve.
 
 ## 0.5.0 — 2026-10-17
 

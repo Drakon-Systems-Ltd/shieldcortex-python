@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/shieldcortex)](https://pypi.org/project/shieldcortex/)
 [![Python](https://img.shields.io/pypi/pyversions/shieldcortex)](https://pypi.org/project/shieldcortex/)
-[![License](https://img.shields.io/pypi/l/shieldcortex)](LICENSE)
+[![License](https://img.shields.io/pypi/l/shieldcortex)](https://github.com/Drakon-Systems-Ltd/shieldcortex-python/blob/main/LICENSE)
 
 Official Python SDK for the [ShieldCortex](https://shieldcortex.ai) API — AI memory security scanning.
 
@@ -305,7 +305,7 @@ deliberate differences:
 
 - [ShieldCortex Docs](https://shieldcortex.ai/docs)
 - [API Reference](https://shieldcortex.ai/docs)
-- [Examples](examples/)
+- [Examples](https://github.com/Drakon-Systems-Ltd/shieldcortex-python/tree/main/examples)
 
 ## License
 
