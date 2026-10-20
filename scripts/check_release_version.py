@@ -6,11 +6,13 @@ accepted only when ``pyproject.toml``'s ``[project] version``,
 ``src/shieldcortex/_version.py``'s ``__version__`` and a ``## X.Y.Z``
 heading in ``CHANGELOG.md`` all name the same version.
 
-Standard library only, and compatible with every Python the test matrix runs.
-The version files are read semantically (TOML via ``tomllib`` where the
-interpreter has it, Python via ``ast``) and never imported or executed. Where
-a reading would be ambiguous the guard returns no version, so the tag is
-refused rather than accepted.
+Standard library only. The version files are read semantically and never
+imported or executed: ``pyproject.toml`` with ``tomllib`` (Python 3.11+; the
+publish workflow runs 3.12) and ``_version.py`` with ``ast``. The guard does
+not try to read TOML without ``tomllib``: on an older interpreter it reports
+no version, so every tag is refused. ``_version.py`` must have the plain shape
+the package uses (a docstring and constant assignments, ``__version__`` set
+exactly once); anything else is refused rather than interpreted.
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ except ImportError:  # pragma: no cover - exercised on the 3.9/3.10 test jobs
     _tomllib = None
 
 _TAG_RE = re.compile(r"^v(\d+\.\d+\.\d+(?:[-.+][0-9A-Za-z.\-+]+)?)$")
-_VERSION_LINE_RE = re.compile(r'^version\s*=\s*"([^"]+)"\s*$')
 
 
 def tag_version(tag: str) -> Optional[str]:
@@ -38,7 +39,13 @@ def tag_version(tag: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def _pyproject_version_toml(text: str) -> Optional[str]:
+def pyproject_version(text: str) -> Optional[str]:
+    """Return the ``version`` key of the ``[project]`` table.
+
+    Needs ``tomllib``. Without it there is no reading, and None refuses the tag.
+    """
+    if _tomllib is None:
+        return None
     try:
         data = _tomllib.loads(text)
     except Exception:
@@ -50,78 +57,53 @@ def _pyproject_version_toml(text: str) -> Optional[str]:
     return version if isinstance(version, str) else None
 
 
-def _pyproject_version_lines(text: str) -> Optional[str]:
-    """Line reader for interpreters without ``tomllib``.
-
-    A multi-line string can hold text that looks like a ``version`` line, so
-    any triple-quote delimiter makes the reading ambiguous and returns None.
-    More than one ``version`` line in ``[project]`` also returns None.
-    """
-    if '"""' in text or "'''" in text:
+def _constant_assignment(node: ast.stmt) -> Optional[tuple]:
+    """(name, value) for ``NAME = <constant>`` or ``NAME: T = <constant>``."""
+    if isinstance(node, ast.Assign):
+        if len(node.targets) != 1:
+            return None
+        target, value = node.targets[0], node.value
+    elif isinstance(node, ast.AnnAssign):
+        target, value = node.target, node.value
+    else:
         return None
-    in_project = False
-    found = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line.startswith("["):
-            in_project = line == "[project]"
-            continue
-        if in_project:
-            match = _VERSION_LINE_RE.match(line)
-            if match:
-                found.append(match.group(1))
-    return found[0] if len(found) == 1 else None
-
-
-def pyproject_version(text: str) -> Optional[str]:
-    """Return the ``version`` key of the ``[project]`` table."""
-    if _tomllib is not None:
-        return _pyproject_version_toml(text)
-    return _pyproject_version_lines(text)
-
-
-def _binds_version(node: ast.AST) -> bool:
-    if isinstance(node, ast.Name):
-        return node.id == "__version__" and isinstance(node.ctx, (ast.Store, ast.Del))
-    if isinstance(node, ast.alias):
-        bound = node.asname or node.name.split(".")[0]
-        return bound == "__version__"
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return node.name == "__version__"
-    if isinstance(node, (ast.Global, ast.Nonlocal)):
-        return "__version__" in node.names
-    return False
+    if not isinstance(target, ast.Name) or not isinstance(value, ast.Constant):
+        return None
+    return target.id, value.value
 
 
 def module_version(text: str) -> Optional[str]:
-    """Return ``__version__`` from a single top-level string assignment.
+    """Return ``__version__`` from a plain version module.
 
-    The source is parsed, not imported. Text inside strings or comments is
-    ignored. Any other binding of ``__version__`` (a second assignment, an
-    augmented assignment, an import alias, a loop target) makes the reading
-    ambiguous and returns None.
+    The source is parsed, not imported. Every top-level statement must be a
+    docstring or a ``NAME = <constant>`` assignment, and ``__version__`` must
+    be assigned exactly once, to a string. Any other statement (imports,
+    conditionals, loops, ``try``, ``match``, definitions, augmented
+    assignments) makes the module something this guard does not interpret,
+    and the reading is None.
     """
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return None
-    if sum(1 for node in ast.walk(tree) if _binds_version(node)) != 1:
-        return None
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign):
-            targets, value = [node.target], node.value
-        else:
+    found = []
+    for index, node in enumerate(tree.body):
+        if (
+            index == 0
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
             continue
-        if len(targets) != 1:
-            continue
-        target = targets[0]
-        if isinstance(target, ast.Name) and target.id == "__version__":
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                return value.value
+        assignment = _constant_assignment(node)
+        if assignment is None:
             return None
-    return None
+        name, value = assignment
+        if name == "__version__":
+            found.append(value)
+    if len(found) != 1 or not isinstance(found[0], str):
+        return None
+    return found[0]
 
 
 def changelog_has(text: str, version: str) -> bool:
@@ -142,6 +124,8 @@ def check(tag: str, root: Path) -> List[str]:
     if version is None:
         return ["tag %r is not of the form vX.Y.Z" % tag]
     problems = []
+    if _tomllib is None:
+        problems.append("tomllib is unavailable (Python 3.11+ is required)")
     py = pyproject_version((root / "pyproject.toml").read_text(encoding="utf-8"))
     if py != version:
         problems.append(
