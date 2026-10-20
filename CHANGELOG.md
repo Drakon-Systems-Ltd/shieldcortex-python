@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Release process
+
+- The PyPI publish workflow now refuses a `v*` tag before building unless the
+  tag matches the `pyproject.toml` version, `shieldcortex.__version__` and a
+  `CHANGELOG.md` heading for that version. The same check runs in the test
+  suite, so a release PR that bumps only some of them fails CI.
+
 ### Documentation
 
 - README: the introductory LangChain example now narrows

@@ -6,7 +6,26 @@ on:
       - "v*"
 
 jobs:
+  verify-version:
+    # Refuse the tag before anything is built or published unless the tag,
+    # pyproject.toml, src/shieldcortex/_version.py and CHANGELOG.md agree.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check tag matches package version and CHANGELOG
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check_release_version.py "$RELEASE_TAG"
+
   publish:
+    needs: verify-version
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
