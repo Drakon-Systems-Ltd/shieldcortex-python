@@ -11,8 +11,11 @@ imported or executed: ``pyproject.toml`` with ``tomllib`` (Python 3.11+; the
 publish workflow runs 3.12) and ``_version.py`` with ``ast``. The guard does
 not try to read TOML without ``tomllib``: on an older interpreter it reports
 no version, so every tag is refused. ``_version.py`` must have the plain shape
-the package uses (a docstring and constant assignments, ``__version__`` set
-exactly once); anything else is refused rather than interpreted.
+the package uses (a docstring and plain ``NAME = <constant>`` assignments,
+``__version__`` set exactly once); anything else, including annotated
+assignments, is refused rather than interpreted. ``_version.py`` is parsed from
+its bytes, so Python's own source decoding (including any coding declaration)
+decides what the statements are.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import ast
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 try:  # Python 3.11+. The publish workflow runs 3.12.
     import tomllib as _tomllib
@@ -58,33 +61,35 @@ def pyproject_version(text: str) -> Optional[str]:
 
 
 def _constant_assignment(node: ast.stmt) -> Optional[tuple]:
-    """(name, value) for ``NAME = <constant>`` or ``NAME: T = <constant>``."""
-    if isinstance(node, ast.Assign):
-        if len(node.targets) != 1:
-            return None
-        target, value = node.targets[0], node.value
-    elif isinstance(node, ast.AnnAssign):
-        target, value = node.target, node.value
-    else:
+    """(name, value) for ``NAME = <constant>``.
+
+    Annotated assignments are not accepted: a module-level annotation is
+    evaluated when the module runs and can rebind ``__version__``.
+    """
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
         return None
+    target, value = node.targets[0], node.value
     if not isinstance(target, ast.Name) or not isinstance(value, ast.Constant):
         return None
     return target.id, value.value
 
 
-def module_version(text: str) -> Optional[str]:
+def module_version(source: Union[bytes, str]) -> Optional[str]:
     """Return ``__version__`` from a plain version module.
 
-    The source is parsed, not imported. Every top-level statement must be a
+    The source is parsed, not imported. It is parsed as bytes (a ``str`` is
+    encoded as UTF-8 first), so a coding declaration is honoured exactly as
+    when Python runs the file. Every top-level statement must be a
     docstring or a ``NAME = <constant>`` assignment, and ``__version__`` must
     be assigned exactly once, to a string. Any other statement (imports,
     conditionals, loops, ``try``, ``match``, definitions, augmented
     assignments) makes the module something this guard does not interpret,
     and the reading is None.
     """
+    data = source.encode("utf-8") if isinstance(source, str) else source
     try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError):
+        tree = ast.parse(data)
+    except (SyntaxError, ValueError, LookupError, UnicodeError):
         return None
     found = []
     for index, node in enumerate(tree.body):
@@ -131,9 +136,7 @@ def check(tag: str, root: Path) -> List[str]:
         problems.append(
             "pyproject.toml [project] version is %r, tag is %r" % (py, version)
         )
-    mod = module_version(
-        (root / "src" / "shieldcortex" / "_version.py").read_text(encoding="utf-8")
-    )
+    mod = module_version((root / "src" / "shieldcortex" / "_version.py").read_bytes())
     if mod != version:
         problems.append(
             "src/shieldcortex/_version.py __version__ is %r, tag is %r"

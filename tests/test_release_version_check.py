@@ -201,8 +201,60 @@ def test_plain_version_module_shapes_are_read() -> None:
     assert crv.module_version('__version__ = "1.2.3"\nVERSION_TUPLE = None\n') == "1.2.3"
 
 
-def test_annotated_dunder_version_is_read() -> None:
-    assert crv.module_version('__version__: str = "1.2.3"\n') == "1.2.3"
+# Round 3: a module-level annotation runs when the module runs, so annotated
+# assignments are refused outright, on __version__ and on any other name.
+ANNOTATION_MODULES = [
+    '__version__: (__version__ := "1.2.4") = "1.2.3"\n',
+    '__version__ = "1.2.3"\nOTHER: (__version__ := "1.2.4") = None\n',
+    '__version__ = "1.2.3"\nOTHER: globals().__setitem__("__version__", "1.2.4") = None\n',
+    '__version__: str = "1.2.3"\n',
+]
+
+
+@pytest.mark.parametrize("module", ANNOTATION_MODULES)
+def test_annotated_assignments_are_refused(module: str) -> None:
+    assert crv.module_version(module) is None
+
+
+@needs_tomllib
+@pytest.mark.parametrize("module", ANNOTATION_MODULES[:3])
+def test_annotation_rebinding_fails_the_check(tmp_path: Path, module: str) -> None:
+    root = _write(tmp_path, '[project]\nversion = "1.2.3"\n', module, CHANGELOG)
+    problems = crv.check("v1.2.3", root)
+    assert len(problems) == 1 and "_version.py" in problems[0]
+
+
+# Round 3: the module is parsed with Python's own source decoding. Under the
+# utf-7 declaration "+AAo-" is a newline, so the last line is a real second
+# assignment, not a comment.
+UTF7_MODULE = b'# coding: utf-7\n__version__ = "1.2.3"\n# +AAo-__version__ = "1.2.4"\n'
+
+
+def test_coding_declaration_is_honoured() -> None:
+    namespace: dict = {}
+    exec(compile(UTF7_MODULE, "v.py", "exec", dont_inherit=True), namespace)
+    assert namespace["__version__"] == "1.2.4"
+    assert crv.module_version(UTF7_MODULE) is None
+    assert crv.module_version(UTF7_MODULE.decode("ascii")) is None
+
+
+@needs_tomllib
+def test_coding_declaration_disagreement_fails_the_check(tmp_path: Path) -> None:
+    root = _write(tmp_path, '[project]\nversion = "1.2.3"\n', "", CHANGELOG)
+    (root / "src" / "shieldcortex" / "_version.py").write_bytes(UTF7_MODULE)
+    problems = crv.check("v1.2.3", root)
+    assert len(problems) == 1 and "_version.py" in problems[0]
+
+
+def test_undecodable_module_is_refused() -> None:
+    # Python itself refuses these sources, so there is no version to compare.
+    assert crv.module_version(b'__version__ = "\xff"\n') is None
+    assert crv.module_version(b'# coding: no-such-codec\n__version__ = "1.2.3"\n') is None
+
+
+def test_plain_coding_declaration_still_reads() -> None:
+    assert crv.module_version(b'# -*- coding: utf-8 -*-\n__version__ = "1.2.3"\n') == "1.2.3"
+    assert crv.module_version(b'# coding: latin-1\n__version__ = "1.2.3"\n') == "1.2.3"
 
 
 @pytest.mark.parametrize(
