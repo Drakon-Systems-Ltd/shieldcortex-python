@@ -81,3 +81,79 @@ def test_current_repository_is_self_consistent() -> None:
     version = crv.pyproject_version((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert version is not None
     assert crv.check("v" + version, ROOT) == []
+
+
+# --- Review round 1 regressions: text inside strings must not stand in for
+# the real version, and the changelog version must sit on the heading line.
+
+MULTILINE_PYPROJECT = (
+    '[project]\nname = "shieldcortex"\ndescription = """\nversion = "1.2.3"\n"""\n'
+    'version = "1.2.4"\n'
+)
+
+
+def _write(root: Path, pyproject: str, module: str, changelog: str) -> Path:
+    (root / "src" / "shieldcortex").mkdir(parents=True)
+    (root / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    (root / "src" / "shieldcortex" / "_version.py").write_text(module, encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    return root
+
+
+def test_version_line_inside_toml_string_is_not_the_version(tmp_path: Path) -> None:
+    root = _write(tmp_path, MULTILINE_PYPROJECT, '__version__ = "1.2.3"\n', CHANGELOG)
+    problems = crv.check("v1.2.3", root)
+    assert len(problems) == 1 and "pyproject.toml" in problems[0]
+
+
+def test_line_reader_refuses_multiline_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The 3.9/3.10 path (no tomllib) must not accept the string's text either.
+    monkeypatch.setattr(crv, "_tomllib", None)
+    assert crv.pyproject_version(MULTILINE_PYPROJECT) is None
+    assert crv.pyproject_version('[project]\nversion = "1.2.3"\n') == "1.2.3"
+
+
+@pytest.mark.skipif(getattr(crv, "_tomllib", None) is None, reason="tomllib needs Python 3.11+")
+def test_toml_reader_returns_the_real_key() -> None:
+    assert crv.pyproject_version(MULTILINE_PYPROJECT) == "1.2.4"
+    assert crv.pyproject_version('project.version = "1.2.3"\n') == "1.2.3"
+
+
+def test_docstring_does_not_stand_in_for_dunder_version(tmp_path: Path) -> None:
+    module = '"""\n__version__ = "1.2.3"\n"""\n__version__ = "1.2.4"\n'
+    root = _write(tmp_path, '[project]\nversion = "1.2.3"\n', module, CHANGELOG)
+    problems = crv.check("v1.2.3", root)
+    assert len(problems) == 1 and "_version.py" in problems[0]
+    assert crv.module_version(module) == "1.2.4"
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        '__version__ = "1.2.3"\n__version__ = "1.2.4"\n',
+        '__version__ = "1.2.3"\n__version__ += ".post1"\n',
+        '__version__ = "1.2.3"\nfrom x import y as __version__\n',
+        '__version__ = "1.2.3"\nfor __version__ in ["1.2.4"]:\n    pass\n',
+        "__version__ = VERSION\n",
+        "# __version__ = \"1.2.3\"\n",
+    ],
+)
+def test_ambiguous_dunder_version_is_refused(module: str) -> None:
+    assert crv.module_version(module) is None
+
+
+def test_annotated_dunder_version_is_read() -> None:
+    assert crv.module_version('__version__: str = "1.2.3"\n') == "1.2.3"
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    ["##\n1.2.3\n", "## \n1.2.3 - x\n", "## 1.2.3]\n", "## [1.2.3\n"],
+)
+def test_changelog_version_must_be_on_the_heading_line(changelog: str) -> None:
+    assert not crv.changelog_has(changelog, "1.2.3")
+
+
+def test_changelog_heading_with_crlf_is_accepted() -> None:
+    assert crv.changelog_has("## 1.2.3\r\n", "1.2.3")
+    assert crv.changelog_has("## [1.2.3]\r\n", "1.2.3")
